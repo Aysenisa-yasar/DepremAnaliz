@@ -47,6 +47,49 @@ function getRiskColor(score) {
     return 'green'; 
 }
 
+// Modern Modal System
+function openModal(title, content) {
+    const modalOverlay = document.getElementById('modalOverlay');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalContent = document.getElementById('modalContent');
+    
+    modalTitle.textContent = title;
+    modalContent.innerHTML = content;
+    modalOverlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+    const modalOverlay = document.getElementById('modalOverlay');
+    modalOverlay.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+// Modal overlay'e tıklandığında kapat
+document.addEventListener('DOMContentLoaded', () => {
+    const modalOverlay = document.getElementById('modalOverlay');
+    const modalClose = document.getElementById('modalClose');
+    
+    if (modalOverlay) {
+        modalOverlay.addEventListener('click', (e) => {
+            if (e.target === modalOverlay) {
+                closeModal();
+            }
+        });
+    }
+    
+    if (modalClose) {
+        modalClose.addEventListener('click', closeModal);
+    }
+    
+    // ESC tuşu ile kapat
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modalOverlay.classList.contains('active')) {
+            closeModal();
+        }
+    });
+});
+
 document.addEventListener('DOMContentLoaded', () => {
     // API URL'ini dinamik olarak kullan (localhost veya production)
     const RENDER_API_BASE_URL = API_URL;
@@ -394,12 +437,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Risk Tahmini
     predictRiskButton.addEventListener('click', () => {
         if (!userCoords) {
-            alert('Lütfen önce "Konumumu Otomatik Belirle" butonuna basarak konumunuzu tespit edin.');
+            openModal('🔮 AI Risk Tahmini', '<div style="text-align: center; padding: 20px; color: #FF1744;"><p>⚠️ Lütfen önce "Konumumu Otomatik Belirle" butonuna basarak konumunuzu tespit edin.</p></div>');
             return;
         }
         
-        riskPredictionResult.innerHTML = '<p>Risk tahmini yapılıyor...</p>';
-        riskPredictionResult.style.display = 'block';
+        openModal('🔮 AI Risk Tahmini', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">Risk tahmini yapılıyor...</p></div>');
         
         fetch(`${RENDER_API_BASE_URL}/api/predict-risk`, {
             mode: 'cors',
@@ -410,7 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({
                 lat: userCoords.lat,
                 lon: userCoords.lon,
-                use_ml: true  // Gelişmiş ML modeli kullan
+                use_ml: true
             }),
         })
         .then(response => {
@@ -421,80 +463,90 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .then(data => {
             if (data.error) {
-                riskPredictionResult.innerHTML = `<p style="color: #FF1744;">Hata: ${data.error}</p>`;
+                openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
                 return;
             }
             
-            // Risk skoru kontrolü
             if (data.risk_score === undefined) {
-                riskPredictionResult.innerHTML = `<p style="color: #FF1744;">Hata: Geçersiz veri formatı. Sunucu yanıtı beklenmedik formatta.</p>`;
+                openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: Geçersiz veri formatı.</p></div>`);
                 return;
             }
             
-            let riskColor = '#2ecc71'; // Yeşil
-            if (data.risk_score >= 7.0) riskColor = '#e74c3c'; // Kırmızı
-            else if (data.risk_score >= 5.0) riskColor = '#e67e22'; // Turuncu
-            else if (data.risk_score >= 3.0) riskColor = '#f39c12'; // Sarı
+            let riskColor = '#2ecc71';
+            if (data.risk_score >= 7.0) riskColor = '#e74c3c';
+            else if (data.risk_score >= 5.0) riskColor = '#e67e22';
+            else if (data.risk_score >= 3.0) riskColor = '#f39c12';
             
             let detailsHtml = '';
             if (data.method === 'ml_ensemble' && data.features) {
                 detailsHtml = `
-                    <p style="margin: 5px 0; font-size: 0.9em;"><strong>🤖 ML Model Tahminleri:</strong></p>
-                    ${data.model_predictions ? `
-                        <p style="margin: 3px 0; font-size: 0.85em;">Random Forest: ${data.model_predictions.random_forest || 'N/A'}/10</p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">XGBoost: ${data.model_predictions.xgboost || 'N/A'}/10</p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">LightGBM: ${data.model_predictions.lightgbm || 'N/A'}/10</p>
-                    ` : ''}
-                    <p style="margin: 10px 0 5px 0; font-size: 0.9em;"><strong>Özellikler:</strong></p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">Toplam Deprem: ${data.features.count || 0}</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">Maksimum Büyüklük: M${data.features.max_magnitude?.toFixed(1) || 'N/A'}</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">En Yakın Mesafe: ${data.features.min_distance?.toFixed(1) || 'N/A'} km</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">Aktivite Yoğunluğu: ${data.features.activity_density?.toFixed(4) || 'N/A'}</p>
-                    ${data.anomaly ? `
-                        <p style="margin: 10px 0 5px 0; font-size: 0.9em;"><strong>⚠️ Anomali Tespiti:</strong></p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">Anomali Skoru: ${data.anomaly.anomaly_score || 0}/1.0</p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">Tespit Edildi: ${data.anomaly.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</p>
-                    ` : ''}
+                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 15px; padding: 20px; margin-top: 20px;">
+                        <p style="margin: 0 0 15px 0; font-size: 1.1em; font-weight: 600;">🤖 ML Model Tahminleri:</p>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;">
+                            ${data.model_predictions ? `
+                                <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
+                                    <p style="margin: 0; font-size: 0.85em; opacity: 0.8;">Random Forest</p>
+                                    <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.model_predictions.random_forest || 'N/A'}/10</p>
+                                </div>
+                                <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
+                                    <p style="margin: 0; font-size: 0.85em; opacity: 0.8;">XGBoost</p>
+                                    <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.model_predictions.xgboost || 'N/A'}/10</p>
+                                </div>
+                                <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
+                                    <p style="margin: 0; font-size: 0.85em; opacity: 0.8;">LightGBM</p>
+                                    <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.model_predictions.lightgbm || 'N/A'}/10</p>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <p style="margin: 15px 0 10px 0; font-size: 1em; font-weight: 600;">📊 Özellikler:</p>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                            <p style="margin: 5px 0;">• Toplam Deprem: <strong>${data.features.count || 0}</strong></p>
+                            <p style="margin: 5px 0;">• Maksimum Büyüklük: <strong>M${data.features.max_magnitude?.toFixed(1) || 'N/A'}</strong></p>
+                            <p style="margin: 5px 0;">• En Yakın Mesafe: <strong>${data.features.min_distance?.toFixed(1) || 'N/A'} km</strong></p>
+                            <p style="margin: 5px 0;">• Aktivite Yoğunluğu: <strong>${data.features.activity_density?.toFixed(4) || 'N/A'}</strong></p>
+                        </div>
+                        ${data.anomaly ? `
+                            <div style="margin-top: 20px; padding: 15px; background: rgba(243, 156, 18, 0.2); border-left: 4px solid #f39c12; border-radius: 10px;">
+                                <p style="margin: 0 0 10px 0; font-size: 1em; font-weight: 600;">⚠️ Anomali Tespiti:</p>
+                                <p style="margin: 5px 0; font-size: 0.9em;">Anomali Skoru: <strong>${data.anomaly.anomaly_score || 0}/1.0</strong></p>
+                                <p style="margin: 5px 0; font-size: 0.9em;">Tespit Edildi: <strong>${data.anomaly.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</strong></p>
+                            </div>
+                        ` : ''}
+                    </div>
                 `;
             } else if (data.factors) {
-                // Geleneksel yöntem (fallback)
                 detailsHtml = `
-                    <p style="margin: 5px 0; font-size: 0.9em;"><strong>Detaylar:</strong></p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">En Büyük Deprem: M${data.factors.max_magnitude || 'N/A'}</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">Son 24 Saatteki Deprem Sayısı: ${data.factors.recent_count || 0}</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">Ortalama Mesafe: ${data.factors.avg_distance || 'N/A'} km</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">En Yakın Fay Hattı: ${data.factors.nearest_fault_km || 'N/A'} km</p>
-                `;
-            } else {
-                // Veri yoksa minimal bilgi göster
-                detailsHtml = `
-                    <p style="margin: 5px 0; font-size: 0.9em;"><strong>Bilgi:</strong></p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">${data.reason || 'Risk analizi tamamlandı.'}</p>
+                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 15px; padding: 20px; margin-top: 20px;">
+                        <p style="margin: 0 0 15px 0; font-size: 1em; font-weight: 600;">📊 Detaylar:</p>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                            <p style="margin: 5px 0;">• En Büyük Deprem: <strong>M${data.factors.max_magnitude || 'N/A'}</strong></p>
+                            <p style="margin: 5px 0;">• Son 24 Saatteki: <strong>${data.factors.recent_count || 0}</strong></p>
+                            <p style="margin: 5px 0;">• Ortalama Mesafe: <strong>${data.factors.avg_distance || 'N/A'} km</strong></p>
+                            <p style="margin: 5px 0;">• En Yakın Fay: <strong>${data.factors.nearest_fault_km || 'N/A'} km</strong></p>
+                        </div>
+                    </div>
                 `;
             }
             
-            riskPredictionResult.innerHTML = `
-                <div style="background-color: ${riskColor}; color: white; padding: 15px; border-radius: 8px;">
-                    <h3 style="margin: 0 0 10px 0;">Risk Seviyesi: ${data.risk_level || 'Bilinmiyor'}</h3>
-                    <p style="margin: 5px 0; font-size: 1.2em;"><strong>Risk Skoru: ${data.risk_score || 0}/10</strong></p>
-                    <p style="margin: 5px 0; font-size: 0.9em;">Yöntem: ${data.method === 'ml_ensemble' ? '🤖 Gelişmiş ML (Ensemble)' : (data.method === 'traditional' ? '📊 Geleneksel' : '📊 Standart')}</p>
-                    ${data.reason ? `<p style="margin: 10px 0;">${data.reason}</p>` : ''}
-                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.3);">
-                        ${detailsHtml}
-                    </div>
+            openModal('🔮 AI Risk Tahmini', `
+                <div style="background: linear-gradient(135deg, ${riskColor} 0%, ${riskColor}dd 100%); border-radius: 20px; padding: 30px; text-align: center; margin-bottom: 20px;">
+                    <h3 style="margin: 0 0 15px 0; font-size: 2rem; font-weight: 800;">Risk Seviyesi: ${data.risk_level || 'Bilinmiyor'}</h3>
+                    <div style="font-size: 3rem; font-weight: 900; margin: 20px 0;">${data.risk_score || 0}/10</div>
+                    <p style="margin: 10px 0; font-size: 1.1em; opacity: 0.95;">${data.method === 'ml_ensemble' ? '🤖 Gelişmiş ML (Ensemble)' : (data.method === 'traditional' ? '📊 Geleneksel' : '📊 Standart')}</p>
+                    ${data.reason ? `<p style="margin: 15px 0 0 0; font-size: 1em; opacity: 0.9;">${data.reason}</p>` : ''}
                 </div>
-            `;
+                ${detailsHtml}
+            `);
         })
         .catch(error => {
             console.error('Risk tahmini hatası:', error);
-            riskPredictionResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.<br><small>Hata: ${error.message}</small></p>`;
+            openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p></div>`);
         });
     });
     
     // İl Bazında Hasar Analizi
     analyzeCityDamageButton.addEventListener('click', () => {
-        cityDamageResult.innerHTML = '<p>İl bazında hasar analizi yapılıyor...</p>';
-        cityDamageResult.style.display = 'block';
+        openModal('🏙️ İl Bazında Risk Analizi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">İl bazında hasar analizi yapılıyor...</p></div>');
         
         fetch(`${RENDER_API_BASE_URL}/api/city-damage-analysis`, {
             method: 'GET',
@@ -506,71 +558,69 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    cityDamageResult.innerHTML = `<p style="color: red;">Hata: ${data.error}</p>`;
+                    openModal('🏙️ İl Bazında Risk Analizi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
                     return;
                 }
                 
                 if (data.status === 'error' || !data.city_risks || data.city_risks.length === 0) {
-                    cityDamageResult.innerHTML = `
-                        <div style="background-color: #2ecc71; color: white; padding: 15px; border-radius: 8px;">
-                            <h3 style="margin: 0 0 10px 0;">✅ İyi Haber!</h3>
-                            <p style="margin: 5px 0;">${data.message}</p>
+                    openModal('🏙️ İl Bazında Risk Analizi', `
+                        <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.2) 0%, rgba(39, 174, 96, 0.2) 100%); border: 2px solid #2ecc71; border-radius: 15px; padding: 25px; text-align: center;">
+                            <h3 style="margin: 0 0 15px 0; color: #2ecc71; font-size: 1.5rem;">✅ İyi Haber!</h3>
+                            <p style="margin: 0; color: rgba(255, 255, 255, 0.9); font-size: 1.1em;">${data.message}</p>
                         </div>
-                    `;
+                    `);
                     return;
                 }
                 
                 let html = `
-                    <div style="background-color: #34495e; color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                        <h3 style="margin: 0 0 10px 0;">📊 Analiz Sonuçları</h3>
-                        <p style="margin: 5px 0;">Toplam Deprem: <strong>${data.total_earthquakes}</strong></p>
-                        <p style="margin: 5px 0;">Analiz Edilen İl Sayısı: <strong>${data.analyzed_cities}</strong></p>
-                        <p style="margin: 5px 0; font-size: 0.9em; opacity: 0.9;">📌 Analiz: Son depremler ve aktif fay hatlarına göre risk hesaplandı</p>
+                    <div style="background: linear-gradient(135deg, rgba(52, 73, 94, 0.3) 0%, rgba(44, 62, 80, 0.3) 100%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 20px; margin-bottom: 20px;">
+                        <h3 style="margin: 0 0 15px 0; color: #ffffff; font-size: 1.3rem;">📊 Analiz Sonuçları</h3>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+                            <div style="text-align: center;">
+                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Toplam Deprem</p>
+                                <p style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #FF1744;">${data.total_earthquakes}</p>
+                            </div>
+                            <div style="text-align: center;">
+                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Analiz Edilen İl</p>
+                                <p style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #9D4EDD;">${data.analyzed_cities}</p>
+                            </div>
+                            <div style="text-align: center;">
+                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Risk Durumu</p>
+                                <p style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #00E5FF;">Aktif</p>
+                            </div>
+                        </div>
                     </div>
-                    <div style="max-height: 600px; overflow-y: auto;">
+                    <div style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">
                 `;
                 
                 data.city_risks.forEach((city, index) => {
-                    let levelColor = '#95a5a6'; // Gri (minimal)
-                    if (city.risk_score >= 70) levelColor = '#e74c3c'; // Kırmızı
-                    else if (city.risk_score >= 50) levelColor = '#e67e22'; // Turuncu
-                    else if (city.risk_score >= 30) levelColor = '#f39c12'; // Sarı
-                    else if (city.risk_score >= 15) levelColor = '#3498db'; // Mavi
+                    let levelColor = '#95a5a6';
+                    if (city.risk_score >= 70) levelColor = '#e74c3c';
+                    else if (city.risk_score >= 50) levelColor = '#e67e22';
+                    else if (city.risk_score >= 30) levelColor = '#f39c12';
+                    else if (city.risk_score >= 15) levelColor = '#3498db';
                     
                     html += `
-                        <div style="background-color: ${levelColor}; color: white; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-                            <h4 style="margin: 0 0 10px 0;">${index + 1}. ${city.city}</h4>
-                            <p style="margin: 5px 0; font-size: 1.2em;"><strong>Risk Skoru: ${city.risk_score.toFixed(1)}/100</strong></p>
-                            <p style="margin: 5px 0;"><strong>Seviye: ${city.risk_level}</strong></p>
-                            <p style="margin: 10px 0; font-size: 0.9em;">${city.description}</p>
-                            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.3);">
-                                <p style="margin: 5px 0; font-size: 0.85em;"><strong>📊 Risk Faktörleri:</strong></p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">• Deprem Riski: ${city.factors.earthquake_risk.toFixed(1)} puan</p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">• Fay Hattı Riski: ${city.factors.fault_risk.toFixed(1)} puan</p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">• Aktivite Skoru: ${city.factors.activity_score.toFixed(1)} puan (${city.factors.earthquake_count} deprem)</p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">• En Yakın Fay: ${city.factors.nearest_fault_name || 'Bilinmiyor'} (${city.factors.nearest_fault_distance.toFixed(1)} km)</p>
-                                ${city.factors.nearest_earthquake_distance ? `<p style="margin: 3px 0; font-size: 0.8em;">• En Yakın Deprem: ${city.factors.nearest_earthquake_distance.toFixed(1)} km (M${city.factors.max_nearby_magnitude.toFixed(1)})</p>` : '<p style="margin: 3px 0; font-size: 0.8em;">• En Yakın Deprem: 200 km+ (Etki yok)</p>'}
-                                ${city.affecting_earthquakes && city.affecting_earthquakes.length > 0 ? `
-                                    <p style="margin: 10px 0 5px 0; font-size: 0.85em;"><strong>📍 Etkileyen Depremler:</strong></p>
-                                    ${city.affecting_earthquakes.map(eq => `
-                                        <p style="margin: 2px 0; font-size: 0.75em;">M${eq.magnitude} - ${eq.location} (${eq.distance} km uzaklıkta)</p>
-                                    `).join('')}
-                                ` : ''}
+                        <div style="background: linear-gradient(135deg, ${levelColor} 0%, ${levelColor}dd 100%); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 15px; padding: 20px; margin-bottom: 15px; backdrop-filter: blur(10px);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h4 style="margin: 0; font-size: 1.3em; font-weight: 700;">${index + 1}. ${city.city}</h4>
+                                <div style="background: rgba(0, 0, 0, 0.3); padding: 8px 15px; border-radius: 20px; font-weight: 700; font-size: 1.1em;">${city.risk_score.toFixed(1)}/100</div>
+                            </div>
+                            <p style="margin: 0 0 15px 0; font-size: 1.1em; font-weight: 600;">Seviye: ${city.risk_level}</p>
+                            <p style="margin: 0 0 15px 0; font-size: 0.95em; opacity: 0.95;">${city.description}</p>
+                            <div style="background: rgba(0, 0, 0, 0.2); border-radius: 10px; padding: 15px; margin-top: 15px;">
+                                <p style="margin: 0 0 10px 0; font-size: 0.95em; font-weight: 600;">📊 Risk Faktörleri:</p>
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.85em;">
+                                    <p style="margin: 5px 0;">• Deprem Riski: <strong>${city.factors.earthquake_risk.toFixed(1)}</strong></p>
+                                    <p style="margin: 5px 0;">• Fay Hattı Riski: <strong>${city.factors.fault_risk.toFixed(1)}</strong></p>
+                                    <p style="margin: 5px 0;">• Aktivite Skoru: <strong>${city.factors.activity_score.toFixed(1)}</strong></p>
+                                    <p style="margin: 5px 0;">• En Yakın Fay: <strong>${city.factors.nearest_fault_distance.toFixed(1)} km</strong></p>
+                                </div>
                                 ${city.building_risk_analysis ? `
-                                    <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid rgba(255,255,255,0.5);">
-                                        <p style="margin: 5px 0; font-size: 0.9em;"><strong>🏗️ BİNA RİSK ANALİZİ:</strong></p>
-                                        <p style="margin: 5px 0; font-size: 0.85em;">Hasar Skoru: <strong>${city.building_risk_analysis.damage_score}/100</strong></p>
-                                        <p style="margin: 5px 0; font-size: 0.85em;">Hasar Seviyesi: <strong>${city.building_risk_analysis.damage_level}</strong></p>
-                                        <p style="margin: 5px 0; font-size: 0.8em;">${city.building_risk_analysis.damage_description}</p>
-                                        <p style="margin: 10px 0 5px 0; font-size: 0.85em;"><strong>Bina Yapısı Dağılımı:</strong></p>
-                                        <p style="margin: 2px 0; font-size: 0.75em;">• Güçlendirilmiş: ${(city.building_risk_analysis.building_structure.reinforced * 100).toFixed(0)}%</p>
-                                        <p style="margin: 2px 0; font-size: 0.75em;">• Normal: ${(city.building_risk_analysis.building_structure.normal * 100).toFixed(0)}%</p>
-                                        <p style="margin: 2px 0; font-size: 0.75em;">• Zayıf: ${(city.building_risk_analysis.building_structure.weak * 100).toFixed(0)}%</p>
-                                        <p style="margin: 10px 0 5px 0; font-size: 0.85em;"><strong>Tahmini Etkilenen Binalar:</strong></p>
-                                        <p style="margin: 2px 0; font-size: 0.75em;">• Güçlendirilmiş: ${city.building_risk_analysis.affected_buildings_percent.reinforced}%</p>
-                                        <p style="margin: 2px 0; font-size: 0.75em;">• Normal: ${city.building_risk_analysis.affected_buildings_percent.normal}%</p>
-                                        <p style="margin: 2px 0; font-size: 0.75em;">• Zayıf: ${city.building_risk_analysis.affected_buildings_percent.weak}%</p>
-                                        <p style="margin: 5px 0; font-size: 0.75em; opacity: 0.9;">📌 Analiz: M${city.building_risk_analysis.based_on_earthquake.magnitude} deprem (${city.building_risk_analysis.based_on_earthquake.distance} km)</p>
+                                    <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid rgba(255,255,255,0.3);">
+                                        <p style="margin: 0 0 10px 0; font-size: 0.95em; font-weight: 600;">🏗️ Bina Risk Analizi:</p>
+                                        <p style="margin: 5px 0; font-size: 0.9em;">Hasar Skoru: <strong>${city.building_risk_analysis.damage_score}/100</strong> - ${city.building_risk_analysis.damage_level}</p>
+                                        <p style="margin: 5px 0; font-size: 0.85em; opacity: 0.9;">${city.building_risk_analysis.damage_description}</p>
                                     </div>
                                 ` : ''}
                             </div>
@@ -579,11 +629,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 html += '</div>';
-                cityDamageResult.innerHTML = html;
+                openModal('🏙️ İl Bazında Risk Analizi', html);
             })
             .catch(error => {
                 console.error('İl bazında risk analizi hatası:', error);
-                cityDamageResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+                openModal('🏙️ İl Bazında Risk Analizi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p></div>`);
             });
     });
     
@@ -591,10 +641,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const checkTurkeyWarningButton = document.getElementById('checkTurkeyWarningButton');
     const turkeyWarningResult = document.getElementById('turkeyWarningResult');
     
-    if (checkTurkeyWarningButton && turkeyWarningResult) {
+    if (checkTurkeyWarningButton) {
         checkTurkeyWarningButton.addEventListener('click', () => {
-            turkeyWarningResult.innerHTML = '<p>Tüm Türkiye erken uyarı durumu kontrol ediliyor...</p>';
-            turkeyWarningResult.style.display = 'block';
+            openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">Tüm Türkiye erken uyarı durumu kontrol ediliyor...</p></div>');
             
             fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, {
                 method: 'GET',
@@ -606,46 +655,64 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'error') {
-                        turkeyWarningResult.innerHTML = `<p style="color: red;">Hata: ${data.message || 'Bilinmeyen hata'}</p>`;
+                        openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.message || 'Bilinmeyen hata'}</p></div>`);
                         return;
                     }
                     
                     let html = `
-                        <div style="background-color: #34495e; color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                            <h3 style="margin: 0 0 10px 0;">📊 Analiz Sonuçları</h3>
-                            <p style="margin: 5px 0;">Analiz Edilen İl Sayısı: <strong>${data.total_cities_analyzed}</strong></p>
-                            <p style="margin: 5px 0;">Uyarı Veren İl Sayısı: <strong>${data.cities_with_warnings}</strong></p>
+                        <div style="background: linear-gradient(135deg, rgba(52, 73, 94, 0.3) 0%, rgba(44, 62, 80, 0.3) 100%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 20px; margin-bottom: 20px;">
+                            <h3 style="margin: 0 0 15px 0; color: #ffffff; font-size: 1.3rem;">📊 Analiz Sonuçları</h3>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                                <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
+                                    <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Analiz Edilen İl</p>
+                                    <p style="margin: 5px 0 0 0; font-size: 1.8em; font-weight: 700; color: #9D4EDD;">${data.total_cities_analyzed}</p>
+                                </div>
+                                <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
+                                    <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Uyarı Veren İl</p>
+                                    <p style="margin: 5px 0 0 0; font-size: 1.8em; font-weight: 700; color: #FF1744;">${data.cities_with_warnings}</p>
+                                </div>
+                            </div>
                         </div>
                     `;
                     
                     if (data.cities_with_warnings === 0) {
                         html += `
-                            <div style="background-color: #2ecc71; color: white; padding: 15px; border-radius: 8px;">
-                                <h3 style="margin: 0 0 10px 0;">✅ İyi Haber!</h3>
-                                <p style="margin: 5px 0;">Şu anda tüm Türkiye'de M ≥ 5.0 deprem riski tespit edilmedi.</p>
+                            <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.3) 0%, rgba(39, 174, 96, 0.3) 100%); border: 2px solid #2ecc71; border-radius: 20px; padding: 30px; text-align: center;">
+                                <h3 style="margin: 0 0 15px 0; color: #2ecc71; font-size: 1.8rem;">✅ İyi Haber!</h3>
+                                <p style="margin: 0; color: rgba(255, 255, 255, 0.95); font-size: 1.1em;">Şu anda tüm Türkiye'de M ≥ 5.0 deprem riski tespit edilmedi.</p>
                             </div>
                         `;
                     } else {
-                        html += '<div style="max-height: 600px; overflow-y: auto;">';
+                        html += '<div style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">';
                         
-                        // Sadece uyarı veren şehirleri göster
                         Object.entries(data.active_warnings || {}).forEach(([city, warning]) => {
-                            let alertColor = '#2ecc71'; // Yeşil
-                            if (warning.alert_level === 'KRİTİK') alertColor = '#e74c3c'; // Kırmızı
-                            else if (warning.alert_level === 'YÜKSEK') alertColor = '#e67e22'; // Turuncu
-                            else if (warning.alert_level === 'ORTA') alertColor = '#f39c12'; // Sarı
+                            let alertColor = '#2ecc71';
+                            if (warning.alert_level === 'KRİTİK') alertColor = '#e74c3c';
+                            else if (warning.alert_level === 'YÜKSEK') alertColor = '#e67e22';
+                            else if (warning.alert_level === 'ORTA') alertColor = '#f39c12';
                             
                             html += `
-                                <div style="background-color: ${alertColor}; color: white; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-                                    <h4 style="margin: 0 0 10px 0;">🚨 ${city.toUpperCase()}</h4>
-                                    <p style="margin: 5px 0; font-size: 1.2em;"><strong>Uyarı Seviyesi: ${warning.alert_level}</strong></p>
-                                    <p style="margin: 5px 0; font-size: 1.1em;">Tahmini Büyüklük: <strong>M${warning.predicted_magnitude || 'N/A'}</strong></p>
-                                    <p style="margin: 5px 0;">Uyarı Skoru: ${warning.alert_score}/1.0</p>
-                                    <p style="margin: 5px 0;">Tahmini Süre: <strong>${warning.time_to_event || 'Bilinmiyor'}</strong></p>
-                                    <p style="margin: 10px 0; font-size: 0.9em;">${warning.message}</p>
-                                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.3);">
-                                        <p style="margin: 3px 0; font-size: 0.85em;">• Son deprem sayısı: ${warning.recent_earthquakes}</p>
-                                        <p style="margin: 3px 0; font-size: 0.85em;">• Anomali tespit edildi: ${warning.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</p>
+                                <div style="background: linear-gradient(135deg, ${alertColor} 0%, ${alertColor}dd 100%); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 15px; padding: 20px; margin-bottom: 15px; backdrop-filter: blur(10px);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                        <h4 style="margin: 0; font-size: 1.4em; font-weight: 700;">🚨 ${city.toUpperCase()}</h4>
+                                        <div style="background: rgba(0, 0, 0, 0.3); padding: 8px 15px; border-radius: 20px; font-weight: 700;">${warning.alert_level}</div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                                        <div>
+                                            <p style="margin: 0; font-size: 0.9em; opacity: 0.9;">Tahmini Büyüklük</p>
+                                            <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">M${warning.predicted_magnitude || 'N/A'}</p>
+                                        </div>
+                                        <div>
+                                            <p style="margin: 0; font-size: 0.9em; opacity: 0.9;">Uyarı Skoru</p>
+                                            <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${warning.alert_score}/1.0</p>
+                                        </div>
+                                    </div>
+                                    <p style="margin: 0 0 15px 0; font-size: 1.1em; font-weight: 600;">Tahmini Süre: ${warning.time_to_event || 'Bilinmiyor'}</p>
+                                    <p style="margin: 0 0 15px 0; font-size: 0.95em; opacity: 0.95;">${warning.message}</p>
+                                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 10px; padding: 15px;">
+                                        <p style="margin: 0 0 10px 0; font-size: 0.9em; font-weight: 600;">📊 Detaylar:</p>
+                                        <p style="margin: 5px 0; font-size: 0.85em;">• Son deprem sayısı: <strong>${warning.recent_earthquakes}</strong></p>
+                                        <p style="margin: 5px 0; font-size: 0.85em;">• Anomali tespit edildi: <strong>${warning.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</strong></p>
                                     </div>
                                 </div>
                             `;
@@ -654,19 +721,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         html += '</div>';
                     }
                     
-                    turkeyWarningResult.innerHTML = html;
+                    openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', html);
                 })
                 .catch(error => {
                     console.error('Türkiye erken uyarı hatası:', error);
-                    turkeyWarningResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+                    openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p></div>`);
                 });
         });
     }
 
     // İstanbul Erken Uyarı Sistemi
     checkIstanbulWarningButton.addEventListener('click', () => {
-        istanbulWarningResult.innerHTML = '<p>İstanbul erken uyarı durumu kontrol ediliyor...</p>';
-        istanbulWarningResult.style.display = 'block';
+        openModal('🏛️ İstanbul Erken Uyarı Sistemi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">İstanbul erken uyarı durumu kontrol ediliyor...</p></div>');
         
         fetch(`${RENDER_API_BASE_URL}/api/istanbul-early-warning`, {
             method: 'GET',
@@ -678,38 +744,59 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    istanbulWarningResult.innerHTML = `<p style="color: red;">Hata: ${data.error}</p>`;
+                    openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
                     return;
                 }
                 
-                let alertColor = '#2ecc71'; // Yeşil
-                if (data.alert_level === 'KRİTİK') alertColor = '#e74c3c'; // Kırmızı
-                else if (data.alert_level === 'YÜKSEK') alertColor = '#e67e22'; // Turuncu
-                else if (data.alert_level === 'ORTA') alertColor = '#f39c12'; // Sarı
+                let alertColor = '#2ecc71';
+                if (data.alert_level === 'KRİTİK') alertColor = '#e74c3c';
+                else if (data.alert_level === 'YÜKSEK') alertColor = '#e67e22';
+                else if (data.alert_level === 'ORTA') alertColor = '#f39c12';
                 
-                istanbulWarningResult.innerHTML = `
-                    <div style="background-color: ${alertColor}; color: white; padding: 20px; border-radius: 8px;">
-                        <h3 style="margin: 0 0 15px 0; font-size: 1.5em;">${data.alert_level} UYARI</h3>
-                        <p style="margin: 10px 0; font-size: 1.2em;"><strong>Uyarı Skoru: ${data.alert_score}/1.0</strong></p>
-                        <p style="margin: 10px 0; font-size: 1.1em;">${data.message}</p>
-                        ${data.time_to_event ? `<p style="margin: 10px 0; font-size: 1.0em;"><strong>Tahmini Süre: ${data.time_to_event}</strong></p>` : ''}
-                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.3);">
-                            <p style="margin: 5px 0; font-size: 0.9em;"><strong>Detaylar:</strong></p>
-                            <p style="margin: 3px 0; font-size: 0.85em;">Son 48 Saatteki Deprem: ${data.recent_earthquakes}</p>
-                            <p style="margin: 3px 0; font-size: 0.85em;">Anomali Tespiti: ${data.anomaly_detected ? '✅ Tespit Edildi' : '❌ Yok'}</p>
-                            ${data.features ? `
-                                <p style="margin: 5px 0; font-size: 0.9em;"><strong>Özellikler:</strong></p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">Maksimum Büyüklük: ${data.features.max_magnitude?.toFixed(1) || 'N/A'}</p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">Toplam Deprem: ${data.features.count || 0}</p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">En Yakın Mesafe: ${data.features.min_distance?.toFixed(1) || 'N/A'} km</p>
-                            ` : ''}
-                        </div>
+                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `
+                    <div style="background: linear-gradient(135deg, ${alertColor} 0%, ${alertColor}dd 100%); border-radius: 20px; padding: 30px; text-align: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0 0 20px 0; font-size: 2.2rem; font-weight: 900;">${data.alert_level} UYARI</h3>
+                        <div style="font-size: 3rem; font-weight: 900; margin: 20px 0;">${data.alert_score}/1.0</div>
+                        <p style="margin: 15px 0; font-size: 1.2em; font-weight: 600; opacity: 0.95;">${data.message}</p>
+                        ${data.time_to_event ? `<p style="margin: 15px 0 0 0; font-size: 1.1em; font-weight: 700;">⏰ Tahmini Süre: ${data.time_to_event}</p>` : ''}
                     </div>
-                `;
+                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 15px; padding: 20px;">
+                        <p style="margin: 0 0 15px 0; font-size: 1.1em; font-weight: 600;">📊 Detaylar:</p>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
+                            <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
+                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Son 48 Saatteki Deprem</p>
+                                <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.recent_earthquakes}</p>
+                            </div>
+                            <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
+                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Anomali Tespiti</p>
+                                <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</p>
+                            </div>
+                        </div>
+                        ${data.features ? `
+                            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.2);">
+                                <p style="margin: 0 0 15px 0; font-size: 1em; font-weight: 600;">🔍 Özellikler:</p>
+                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
+                                    <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
+                                        <p style="margin: 0; opacity: 0.8;">Maksimum Büyüklük</p>
+                                        <p style="margin: 5px 0 0 0; font-weight: 700;">M${data.features.max_magnitude?.toFixed(1) || 'N/A'}</p>
+                                    </div>
+                                    <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
+                                        <p style="margin: 0; opacity: 0.8;">Toplam Deprem</p>
+                                        <p style="margin: 5px 0 0 0; font-weight: 700;">${data.features.count || 0}</p>
+                                    </div>
+                                    <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
+                                        <p style="margin: 0; opacity: 0.8;">En Yakın Mesafe</p>
+                                        <p style="margin: 5px 0 0 0; font-weight: 700;">${data.features.min_distance?.toFixed(1) || 'N/A'} km</p>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `);
             })
             .catch(error => {
                 console.error('İstanbul erken uyarı hatası:', error);
-                istanbulWarningResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p></div>`);
             });
     });
 

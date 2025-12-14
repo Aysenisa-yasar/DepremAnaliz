@@ -1046,6 +1046,160 @@ def find_nearest_city(lat, lon):
     
     return nearest_city, min_distance
 
+def turkey_early_warning_system(earthquakes, target_city=None):
+    """
+    Tüm Türkiye için erken uyarı sistemi.
+    M ≥ 5.0 olabilecek yıkıcı depremlerden önce bildirim gönderir.
+    target_city: Belirli bir il için analiz yapılacaksa (None ise tüm iller)
+    """
+    warnings = {}
+    
+    # Analiz edilecek şehirler
+    cities_to_analyze = [target_city] if target_city and target_city in TURKEY_CITIES else list(TURKEY_CITIES.keys())
+    
+    for city_name in cities_to_analyze:
+        city_data = TURKEY_CITIES[city_name]
+        city_lat = city_data['lat']
+        city_lon = city_data['lon']
+        
+        # Şehir çevresindeki depremleri filtrele (200 km yarıçap)
+        city_earthquakes = []
+        for eq in earthquakes:
+            if eq.get('geojson') and eq['geojson'].get('coordinates'):
+                lon, lat = eq['geojson']['coordinates']
+                distance = haversine(city_lat, city_lon, lat, lon)
+                
+                if distance <= 200:
+                    city_earthquakes.append({
+                        'mag': eq.get('mag', 0),
+                        'distance': distance,
+                        'depth': eq.get('depth', 10),
+                        'lat': lat,
+                        'lon': lon,
+                        'timestamp': eq.get('timestamp', time.time()),
+                        'location': eq.get('location', '')
+                    })
+        
+        if len(city_earthquakes) == 0:
+            warnings[city_name] = {
+                "alert_level": "Normal",
+                "alert_score": 0.0,
+                "message": f"{city_name} çevresinde anormal aktivite yok.",
+                "time_to_event": None,
+                "predicted_magnitude": None
+            }
+            continue
+        
+        # Özellik çıkarımı (son 7 gün)
+        features = extract_features(earthquakes, city_lat, city_lon, time_window_hours=168)
+        
+        if features is None:
+            warnings[city_name] = {
+                "alert_level": "Normal",
+                "alert_score": 0.0,
+                "message": "Yeterli veri yok.",
+                "time_to_event": None,
+                "predicted_magnitude": None
+            }
+            continue
+        
+        # Erken uyarı skorları (M ≥ 5.0 deprem tahmini için)
+        warning_scores = []
+        warning_messages = []
+        predicted_magnitude = 0.0
+        
+        # 1. Aktivite artışı (son 7 günde)
+        recent_count = features.get('count', 0)
+        if recent_count > 20:
+            warning_scores.append(0.3)
+            warning_messages.append(f"Son 7 günde {recent_count} deprem tespit edildi (yüksek aktivite)")
+        
+        # 2. Büyüklük artışı ve tahmin
+        max_mag = features.get('max_magnitude', 0)
+        mean_mag = features.get('mean_magnitude', 0)
+        
+        # Büyüklük trendi analizi
+        mag_trend = features.get('magnitude_trend', 0)
+        if mag_trend > 0.2:
+            # Büyüklük artıyor, M ≥ 5.0 riski var
+            predicted_magnitude = min(7.0, max_mag + mag_trend * 2)  # Tahmin
+            if predicted_magnitude >= 5.0:
+                warning_scores.append(0.5)
+                warning_messages.append(f"M{predicted_magnitude:.1f} büyüklüğünde deprem riski tespit edildi")
+        
+        if max_mag >= 4.5:
+            warning_scores.append(0.4)
+            warning_messages.append(f"M{max_mag:.1f} büyüklüğünde deprem tespit edildi")
+            if predicted_magnitude < max_mag:
+                predicted_magnitude = max_mag
+        
+        # 3. Yakın mesafe (çok yakın depremler daha riskli)
+        min_dist = features.get('min_distance', 300)
+        if min_dist < 30:
+            warning_scores.append(0.6)
+            warning_messages.append(f"Deprem merkezi {city_name}'a {min_dist:.1f} km uzaklıkta (çok yakın)")
+        elif min_dist < 50:
+            warning_scores.append(0.4)
+            warning_messages.append(f"Deprem merkezi {city_name}'a {min_dist:.1f} km uzaklıkta")
+        
+        # 4. Büyüklük trendi (artıyor mu?)
+        if mag_trend > 0.3:
+            warning_scores.append(0.5)
+            warning_messages.append("Deprem büyüklükleri hızla artış eğiliminde")
+        
+        # 5. Sık depremler (swarm aktivitesi)
+        min_interval = features.get('min_interval', 3600)
+        if min_interval < 300:  # 5 dakikadan az
+            warning_scores.append(0.4)
+            warning_messages.append("Çok sık deprem aktivitesi (swarm) tespit edildi")
+        
+        # 6. Anomali tespiti
+        anomaly_result = detect_anomalies(earthquakes, city_lat, city_lon)
+        if anomaly_result['anomaly_detected']:
+            warning_scores.append(0.6)
+            warning_messages.append("Olağandışı deprem aktivitesi tespit edildi")
+            if predicted_magnitude < 5.0:
+                predicted_magnitude = 5.0  # Anomali varsa M ≥ 5.0 riski
+        
+        # 7. Fay hattı yakınlığı
+        nearest_fault = features.get('nearest_fault_distance', 200)
+        if nearest_fault < 25:
+            warning_scores.append(0.3)
+            warning_messages.append(f"Aktif fay hattına {nearest_fault:.1f} km uzaklıkta")
+        
+        # Toplam uyarı skoru
+        total_score = min(1.0, sum(warning_scores))
+        
+        # Uyarı seviyesi ve tahmini süre (M ≥ 5.0 deprem için)
+        if total_score >= 0.7 and predicted_magnitude >= 5.0:
+            alert_level = "KRİTİK"
+            time_to_event = "0-24 saat içinde"
+        elif total_score >= 0.5 and predicted_magnitude >= 5.0:
+            alert_level = "YÜKSEK"
+            time_to_event = "24-72 saat içinde"
+        elif total_score >= 0.4 and predicted_magnitude >= 4.5:
+            alert_level = "ORTA"
+            time_to_event = "72-168 saat içinde (1 hafta)"
+        elif total_score >= 0.3:
+            alert_level = "DÜŞÜK"
+            time_to_event = "1-2 hafta içinde"
+        else:
+            alert_level = "Normal"
+            time_to_event = None
+        
+        warnings[city_name] = {
+            "alert_level": alert_level,
+            "alert_score": round(total_score, 2),
+            "message": " | ".join(warning_messages) if warning_messages else "Normal aktivite",
+            "time_to_event": time_to_event,
+            "predicted_magnitude": round(predicted_magnitude, 1) if predicted_magnitude > 0 else None,
+            "features": features,
+            "recent_earthquakes": len(city_earthquakes),
+            "anomaly_detected": anomaly_result['anomaly_detected']
+        }
+    
+    return warnings
+
 def ai_damage_estimate(magnitude, depth, distance, building_structure):
     """
     Yapay zeka destekli hasar tahmini yapar.
@@ -1657,6 +1811,50 @@ def health_check():
     """ Health check endpoint - Render.com uyanık tutma için """
     return jsonify({"status": "ok", "message": "Server is awake"}), 200
 
+@app.route('/api/turkey-early-warning', methods=['GET'])
+def turkey_early_warning():
+    """ Tüm Türkiye için erken uyarı sistemi - M ≥ 5.0 deprem riski tahmini """
+    try:
+        try:
+            earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+            if not earthquake_data:
+                earthquake_data = []
+        except Exception as e:
+            print(f"[WARNING] API'den veri çekilemedi: {e}")
+            earthquake_data = []
+        
+        try:
+            warnings = turkey_early_warning_system(earthquake_data)
+            
+            # Sadece uyarı veren şehirleri filtrele
+            active_warnings = {city: data for city, data in warnings.items() 
+                             if data['alert_level'] in ['KRİTİK', 'YÜKSEK', 'ORTA']}
+            
+            return jsonify({
+                "status": "success",
+                "total_cities_analyzed": len(warnings),
+                "cities_with_warnings": len(active_warnings),
+                "warnings": warnings,
+                "active_warnings": active_warnings
+            })
+        except Exception as e:
+            print(f"[ERROR] Türkiye erken uyarı sistemi hatası: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "status": "error",
+                "message": f"Erken uyarı sistemi hatası: {str(e)}",
+                "warnings": {}
+            }), 500
+            
+    except Exception as e:
+        print(f"[ERROR] Beklenmeyen hata: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Sunucu hatası: {str(e)}",
+            "warnings": {}
+        }), 500
+
 @app.route('/api/city-damage-analysis', methods=['GET'])
 def city_damage_analysis():
     """ İl bazında risk tahmini: Son depremlere ve aktif fay hatlarına göre. """
@@ -1769,6 +1967,37 @@ def city_damage_analysis():
                 risk_level = "Minimal"
                 risk_description = f"{city_name} için minimal deprem riski. Genel güvenlik önlemleri yeterli."
             
+            # Bina risk analizi - En yakın ve en büyük depreme göre
+            building_risk_analysis = None
+            if affecting_earthquakes:
+                # En riskli depremi bul (büyüklük ve mesafeye göre)
+                most_risky_eq = max(affecting_earthquakes, key=lambda x: x['magnitude'] / (x['distance'] + 1))
+                
+                # Bina yapısı bilgisi
+                building_structure = city_data.get('building_structure', {"reinforced": 0.25, "normal": 0.50, "weak": 0.25})
+                
+                # Hasar tahmini yap
+                damage_estimate = ai_damage_estimate(
+                    magnitude=most_risky_eq['magnitude'],
+                    depth=most_risky_eq.get('depth', 10),
+                    distance=most_risky_eq['distance'],
+                    building_structure=building_structure
+                )
+                
+                building_risk_analysis = {
+                    "damage_score": damage_estimate['damage_score'],
+                    "damage_level": damage_estimate['level'],
+                    "damage_description": damage_estimate['description'],
+                    "affected_buildings_percent": damage_estimate['affected_buildings_percent'],
+                    "building_structure": building_structure,
+                    "based_on_earthquake": {
+                        "magnitude": most_risky_eq['magnitude'],
+                        "distance": most_risky_eq['distance'],
+                        "location": most_risky_eq['location']
+                    },
+                    "factors": damage_estimate['factors']
+                }
+            
             city_risks[city_name] = {
                 "city": city_name,
                 "lat": city_lat,
@@ -1787,7 +2016,8 @@ def city_damage_analysis():
                     "nearest_earthquake_distance": round(nearest_earthquake_distance, 1) if nearest_earthquake_distance != float('inf') else None
                 },
                 "affecting_earthquakes": affecting_earthquakes[:5],  # En yakın 5 deprem
-                "building_structure": city_data['building_structure']
+                "building_structure": city_data.get('building_structure', {"reinforced": 0.25, "normal": 0.50, "weak": 0.25}),
+                "building_risk_analysis": building_risk_analysis  # YENİ: Bina risk analizi
             }
         
         # Sıralama: En yüksek risk skoruna göre
@@ -2045,7 +2275,66 @@ def check_for_big_earthquakes():
         except Exception:
             continue
         
-        # İstanbul erken uyarı kontrolü
+        # TÜM TÜRKİYE İÇİN ERKEN UYARI KONTROLÜ (M ≥ 5.0 deprem riski)
+        try:
+            turkey_warnings = turkey_early_warning_system(earthquakes)
+            
+            # Her şehir için kontrol et
+            for city_name, warning_data in turkey_warnings.items():
+                alert_level = warning_data.get('alert_level', 'Normal')
+                predicted_mag = warning_data.get('predicted_magnitude', 0)
+                
+                # M ≥ 5.0 riski varsa ve KRİTİK/YÜKSEK/ORTA seviyede bildirim gönder
+                if alert_level in ['KRİTİK', 'YÜKSEK', 'ORTA'] and predicted_mag >= 5.0:
+                    print(f"🚨 {city_name} ERKEN UYARI: {alert_level} - Tahmini M{predicted_mag:.1f} - {warning_data.get('time_to_event', '')}")
+                    
+                    # Kullanıcı verilerini tekrar yükle
+                    user_alerts = load_user_alerts()
+                    
+                    # Bu şehir için kayıtlı kullanıcılara bildirim gönder
+                    for number, coords in user_alerts.items():
+                        city, _ = find_nearest_city(coords['lat'], coords['lon'])
+                        
+                        if city == city_name:
+                            # Spam önleme
+                            alert_key = f"{number}_{city_name}_{alert_level}"
+                            current_time = time.time()
+                            
+                            if alert_key in last_istanbul_alert_time:
+                                time_since_last = current_time - last_istanbul_alert_time[alert_key]
+                                if time_since_last < 3600:  # 1 saat
+                                    continue
+                            
+                            # Bildirim gönder
+                            body = f"🚨 {city_name.upper()} ERKEN UYARI SİSTEMİ 🚨\n\n"
+                            body += f"⚠️ M ≥ 5.0 DEPREM RİSKİ TESPİT EDİLDİ ⚠️\n\n"
+                            body += f"Şehir: {city_name}\n"
+                            body += f"Uyarı Seviyesi: {alert_level}\n"
+                            body += f"Uyarı Skoru: {warning_data.get('alert_score', 0):.2f}/1.0\n"
+                            body += f"Tahmini Büyüklük: M{predicted_mag:.1f}\n"
+                            body += f"Tahmini Süre: {warning_data.get('time_to_event', 'Bilinmiyor')}\n"
+                            body += f"Mesaj: {warning_data.get('message', 'Anormal aktivite tespit edildi')}\n"
+                            
+                            body += f"\n📊 DETAYLAR:\n"
+                            body += f"• Son deprem sayısı: {warning_data.get('recent_earthquakes', 0)}\n"
+                            body += f"• Anomali tespit edildi: {'Evet' if warning_data.get('anomaly_detected') else 'Hayır'}\n"
+                            
+                            body += f"\n⚠️ LÜTFEN HAZIRLIKLI OLUN:\n"
+                            body += f"• Acil durum çantanızı hazırlayın\n"
+                            body += f"• Güvenli yerleri belirleyin\n"
+                            body += f"• Aile acil durum planınızı gözden geçirin\n"
+                            body += f"• Sakin kalın ve hazırlıklı olun"
+                            
+                            try:
+                                send_whatsapp_notification(number, body)
+                                last_istanbul_alert_time[alert_key] = current_time
+                                print(f"✅ {city_name} erken uyarı bildirimi gönderildi: {number}")
+                            except Exception as e:
+                                print(f"[ERROR] {city_name} bildirimi gönderilemedi ({number}): {e}")
+        except Exception as e:
+            print(f"[ERROR] Türkiye erken uyarı kontrolü hatası: {e}")
+        
+        # İstanbul erken uyarı kontrolü (eski sistem - geriye dönük uyumluluk)
         try:
             istanbul_warning = istanbul_early_warning_system(earthquakes)
             alert_level = istanbul_warning.get('alert_level', 'Normal')

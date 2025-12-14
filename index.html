@@ -116,12 +116,24 @@
                         </p>
                     </div>
                 </div>
-                <div class="info-box">
-                    <h4 style="margin: 0 0 10px 0; color: #ffffff;">📱 WhatsApp Sandbox'a Katılma (ÜCRETSİZ)</h4>
-                    <p style="margin: 5px 0; font-size: 0.9em; color: rgba(255, 255, 255, 0.9) !important;">
-                        <strong>ÖNEMLİ:</strong> Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor.
+                <div class="info-box" style="margin-top: 20px;">
+                    <h4 style="margin: 0 0 15px 0; color: #ffffff;">📱 WhatsApp Bağlantısı (ÜCRETSİZ)</h4>
+                    <p style="margin: 5px 0 15px 0; font-size: 0.9em; color: rgba(255, 255, 255, 0.9) !important;">
+                        <strong>YENİ:</strong> Artık ücretsiz WhatsApp Web servisi kullanıyoruz! QR kod okutarak bağlanın.
                     </p>
-                    <ol style="margin: 10px 0; padding-left: 20px; font-size: 0.85em; color: rgba(255, 255, 255, 0.8);">
+                    <button id="whatsappQrButton" class="btn-modern btn-primary" style="width: 100%; margin-bottom: 15px;">
+                        📱 WhatsApp QR Kod ile Bağlan
+                    </button>
+                    <div id="whatsappStatus" style="margin-top: 10px; padding: 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.2); display: none;">
+                        <p style="margin: 0; font-size: 0.85em;"></p>
+                    </div>
+                </div>
+                <div class="info-box" style="margin-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 20px;">
+                    <h4 style="margin: 0 0 10px 0; color: #ffffff;">📱 Eski Yöntem: Twilio Sandbox (Alternatif)</h4>
+                    <p style="margin: 5px 0; font-size: 0.9em; color: rgba(255, 255, 255, 0.7) !important;">
+                        İsterseniz Twilio WhatsApp Sandbox'ı da kullanabilirsiniz.
+                    </p>
+                    <ol style="margin: 10px 0; padding-left: 20px; font-size: 0.85em; color: rgba(255, 255, 255, 0.7);">
                         <li>Twilio Console'a gidin: <a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">console.twilio.com</a></li>
                         <li><strong>Messaging</strong> > <strong>Try it out</strong> > <strong>Send a WhatsApp message</strong></li>
                         <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın</li>

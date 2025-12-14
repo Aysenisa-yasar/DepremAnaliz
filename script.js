@@ -138,6 +138,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const getLocationButton = document.getElementById('getLocationButton');
     const saveSettingsButton = document.getElementById('saveSettingsButton');
+    const whatsappQrButton = document.getElementById('whatsappQrButton');
+    const whatsappStatus = document.getElementById('whatsappStatus');
     const locationStatus = document.getElementById('locationStatus');
     const numberInput = document.getElementById('numberInput');
     
@@ -951,4 +953,112 @@ document.addEventListener('DOMContentLoaded', () => {
             sendChatbotMessage();
         }
     });
+
+    // WhatsApp QR Kod Sistemi
+    if (whatsappQrButton) {
+        // Durum kontrolü
+        function checkWhatsAppStatus() {
+            fetch(`${API_URL}/api/whatsapp-status`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.ready && data.authenticated) {
+                    whatsappStatus.style.display = 'block';
+                    whatsappStatus.style.background = 'rgba(46, 204, 113, 0.2)';
+                    whatsappStatus.style.border = '1px solid #2ecc71';
+                    whatsappStatus.querySelector('p').textContent = '✅ WhatsApp bağlı ve hazır!';
+                    whatsappQrButton.textContent = '✅ WhatsApp Bağlı';
+                    whatsappQrButton.disabled = true;
+                } else if (data.hasQr) {
+                    whatsappStatus.style.display = 'block';
+                    whatsappStatus.style.background = 'rgba(243, 156, 18, 0.2)';
+                    whatsappStatus.style.border = '1px solid #f39c12';
+                    whatsappStatus.querySelector('p').textContent = '⚠️ QR kod hazır. Lütfen QR kod okutun.';
+                    whatsappQrButton.textContent = '📱 QR Kod Göster';
+                } else {
+                    whatsappStatus.style.display = 'block';
+                    whatsappStatus.style.background = 'rgba(231, 76, 60, 0.2)';
+                    whatsappStatus.style.border = '1px solid #e74c3c';
+                    whatsappStatus.querySelector('p').textContent = '❌ WhatsApp bağlı değil. QR kod ile bağlanın.';
+                    whatsappQrButton.textContent = '📱 WhatsApp QR Kod ile Bağlan';
+                }
+            })
+            .catch(error => {
+                console.error('WhatsApp durum kontrolü hatası:', error);
+                whatsappStatus.style.display = 'block';
+                whatsappStatus.style.background = 'rgba(231, 76, 60, 0.2)';
+                whatsappStatus.style.border = '1px solid #e74c3c';
+                whatsappStatus.querySelector('p').textContent = '❌ WhatsApp servisine bağlanılamadı. Servis çalışıyor mu?';
+            });
+        }
+
+        // İlk durum kontrolü
+        checkWhatsAppStatus();
+        // Her 10 saniyede bir durum kontrolü
+        setInterval(checkWhatsAppStatus, 10000);
+
+        // QR kod butonuna tıklandığında
+        whatsappQrButton.addEventListener('click', () => {
+            fetch(`${API_URL}/api/whatsapp-qr`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.qr) {
+                    openModal('📱 WhatsApp QR Kod ile Bağlan', `
+                        <div style="text-align: center; padding: 20px;">
+                            <h3 style="margin-bottom: 20px; color: #ffffff;">WhatsApp'ı Açın ve QR Kodu Okutun</h3>
+                            <div style="background: white; padding: 20px; border-radius: 15px; display: inline-block; margin-bottom: 20px;">
+                                <img src="${data.qr}" alt="WhatsApp QR Code" style="max-width: 300px; height: auto;">
+                            </div>
+                            <p style="color: rgba(255, 255, 255, 0.9); margin-bottom: 15px;">
+                                1. WhatsApp'ı telefonunuzda açın<br>
+                                2. Ayarlar > Bağlı Cihazlar > Cihaz Bağla<br>
+                                3. QR kodu okutun
+                            </p>
+                            <button onclick="location.reload()" class="btn-modern btn-primary" style="margin-top: 10px;">
+                                🔄 Durumu Yenile
+                            </button>
+                        </div>
+                    `);
+                } else if (data.message && data.message.includes('zaten bağlı')) {
+                    openModal('📱 WhatsApp Durumu', `
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.3) 0%, rgba(39, 174, 96, 0.3) 100%); border: 2px solid #2ecc71; border-radius: 20px; padding: 30px;">
+                                <h3 style="margin: 0 0 15px 0; color: #2ecc71; font-size: 1.8rem;">✅ WhatsApp Bağlı!</h3>
+                                <p style="margin: 0; color: rgba(255, 255, 255, 0.95); font-size: 1.1em;">
+                                    WhatsApp zaten bağlı ve hazır. Bildirimler otomatik olarak gönderilecek.
+                                </p>
+                            </div>
+                        </div>
+                    `);
+                } else {
+                    openModal('📱 WhatsApp QR Kod', `
+                        <div style="text-align: center; padding: 20px;">
+                            <p style="color: #FF1744;">${data.message || 'QR kod alınamadı. Lütfen daha sonra tekrar deneyin.'}</p>
+                            <button onclick="location.reload()" class="btn-modern btn-primary" style="margin-top: 15px;">
+                                🔄 Yeniden Dene
+                            </button>
+                        </div>
+                    `);
+                }
+            })
+            .catch(error => {
+                console.error('QR kod hatası:', error);
+                openModal('📱 WhatsApp QR Kod', `
+                    <div style="text-align: center; padding: 20px;">
+                        <p style="color: #FF1744;">WhatsApp servisine bağlanılamadı. Servis çalışıyor mu?</p>
+                        <p style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-top: 10px;">
+                            WhatsApp servisi çalışmıyor olabilir. Lütfen backend'i kontrol edin.
+                        </p>
+                    </div>
+                `);
+            });
+        });
+    }
 });

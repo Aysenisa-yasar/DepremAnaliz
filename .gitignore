@@ -20,6 +20,9 @@ instance/
 .env.local
 *.env
 RENDER_ENV_VARIABLES.txt
+whatsapp-session/
+node_modules/
+*.log
 
 # Twilio credentials (güvenlik için)
 # TWILIO_ACCOUNT_SID

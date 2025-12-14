@@ -1,0 +1,29 @@
+{
+  "name": "deprem-analiz-whatsapp-service",
+  "version": "1.0.0",
+  "description": "Ücretsiz WhatsApp bildirim servisi - QR kod ile bağlanma",
+  "main": "whatsapp-service.js",
+  "scripts": {
+    "start": "node whatsapp-service.js",
+    "dev": "nodemon whatsapp-service.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "notification",
+    "qr-code"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode": "^1.5.3",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

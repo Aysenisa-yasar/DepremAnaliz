@@ -25,31 +25,31 @@ body {
     font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     background: var(--color-background);
     background-attachment: fixed;
-    color: #000000;
+    color: #ffffff;
     line-height: 1.6;
     min-height: 100vh;
     padding: 20px;
 }
 
-/* Normal yazılar siyah */
+/* Normal yazılar beyaz */
 p {
-    color: #000000 !important;
+    color: #ffffff !important;
 }
 
 span {
-    color: #000000 !important;
+    color: #ffffff !important;
 }
 
 div {
-    color: #000000;
+    color: #ffffff;
 }
 
 .card p {
-    color: #000000 !important;
+    color: #ffffff !important;
 }
 
 .card span {
-    color: #000000 !important;
+    color: #ffffff !important;
 }
 
 .container {
@@ -106,7 +106,7 @@ h1.header-title {
 }
 
 .subtitle {
-    color: #000000 !important;
+    color: #ffffff !important;
     font-size: 1.1em;
     position: relative;
     z-index: 1;
@@ -318,13 +318,13 @@ button:active, .action-button:active, .save-button:active {
 .details .location {
     font-size: 1.3em;
     font-weight: 700;
-    color: #000000 !important;
+    color: #ffffff !important;
     margin-bottom: 5px;
 }
 
 .details .info {
     font-size: 0.95em;
-    color: #000000 !important;
+    color: #ffffff !important;
 }
 
 /* Input Fields */
@@ -336,7 +336,7 @@ input[type="tel"], input[type="number"], select {
     font-size: 1em;
     transition: all 0.3s;
     background: rgba(0, 0, 0, 0.5);
-    color: #000000 !important;
+    color: #ffffff !important;
 }
 
 input[type="tel"]:focus, input[type="number"]:focus, select:focus {
@@ -427,7 +427,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 
 .message.bot .message-bubble {
     background: rgba(255, 23, 68, 0.2);
-    color: #000000 !important;
+    color: #ffffff !important;
     box-shadow: var(--shadow-soft);
 }
 
@@ -451,7 +451,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
     border-radius: 25px;
     font-size: 0.95em;
     background: rgba(0, 0, 0, 0.5);
-    color: #000000 !important;
+    color: #ffffff !important;
 }
 
 .chatbot-send {

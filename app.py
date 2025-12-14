@@ -1469,12 +1469,72 @@ def set_alert_settings():
 
 # --- ARKA PLAN BİLDİRİM KONTROLÜ ---
 
+def collect_historical_data():
+    """ Geçmiş 1 ay deprem verilerini toplar ve kaydeder. """
+    global EARTHQUAKE_HISTORY_FILE
+    
+    while True:
+        time.sleep(3600)  # Her 1 saatte bir geçmiş veri topla
+        
+        try:
+            # Kandilli API'den veri çek
+            response = requests.get(KANDILLI_API, timeout=15)
+            response.raise_for_status()
+            earthquakes = response.json().get('result', [])
+            
+            if not earthquakes:
+                continue
+            
+            # Mevcut tarihsel veriyi yükle
+            historical_data = []
+            if os.path.exists(EARTHQUAKE_HISTORY_FILE):
+                try:
+                    with open(EARTHQUAKE_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                        historical_data = json.load(f)
+                except:
+                    historical_data = []
+            
+            # Yeni depremleri ekle (tekrar kontrolü)
+            seen_ids = set()
+            for eq in historical_data:
+                if eq.get('geojson') and eq['geojson'].get('coordinates'):
+                    lon, lat = eq['geojson']['coordinates']
+                    eq_id = f"{eq.get('mag', 0)}_{lat}_{lon}_{eq.get('timestamp', 0)}"
+                    seen_ids.add(eq_id)
+            
+            new_count = 0
+            for eq in earthquakes:
+                if eq.get('geojson') and eq['geojson'].get('coordinates'):
+                    lon, lat = eq['geojson']['coordinates']
+                    eq_id = f"{eq.get('mag', 0)}_{lat}_{lon}_{eq.get('timestamp', 0)}"
+                    if eq_id not in seen_ids:
+                        # Timestamp ekle
+                        if 'timestamp' not in eq:
+                            eq['timestamp'] = time.time()
+                        historical_data.append(eq)
+                        seen_ids.add(eq_id)
+                        new_count += 1
+            
+            # Son 1 ay verilerini tut (yaklaşık 30 gün * 24 saat * 10 deprem = 7200)
+            # Ama daha fazla tutabiliriz (son 10000 deprem)
+            if len(historical_data) > 10000:
+                historical_data = historical_data[-10000:]
+            
+            # Kaydet
+            with open(EARTHQUAKE_HISTORY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(historical_data, f, ensure_ascii=False, indent=2)
+            
+            if new_count > 0:
+                print(f"[TARİHSEL VERİ] {new_count} yeni deprem verisi eklendi. Toplam: {len(historical_data)}")
+        except Exception as e:
+            print(f"[HATA] Tarihsel veri toplama hatası: {e}")
+
 def check_for_big_earthquakes():
     """ Arka planda sürekli çalışır, M >= 5.0 deprem olup olmadığını kontrol eder. """
     global last_big_earthquake, user_alerts
     
     while True:
-        time.sleep(60) 
+        time.sleep(30)  # 30 saniyede bir kontrol et (daha sık) 
 
         try:
             response = requests.get(KANDILLI_API, timeout=5)
@@ -1483,22 +1543,36 @@ def check_for_big_earthquakes():
         except requests.exceptions.RequestException:
             continue
         
-        # İstanbul erken uyarı kontrolü
+        # İstanbul erken uyarı kontrolü (depremden ÖNCE uyarı)
         istanbul_warning = istanbul_early_warning_system(earthquakes)
-        if istanbul_warning['alert_level'] in ['KRİTİK', 'YÜKSEK']:
+        if istanbul_warning['alert_level'] in ['KRİTİK', 'YÜKSEK', 'ORTA']:
             print(f"🚨 İSTANBUL ERKEN UYARI: {istanbul_warning['alert_level']} - {istanbul_warning['message']}")
-            # İstanbul için kayıtlı kullanıcılara bildirim gönder
+            # İstanbul için kayıtlı kullanıcılara bildirim gönder (depremden ÖNCE)
+            user_alerts = load_user_alerts()  # Güncel verileri yükle
             for number, coords in user_alerts.items():
                 city, _ = find_nearest_city(coords['lat'], coords['lon'])
                 if city == 'İstanbul':
-                    body = f"🚨 İSTANBUL ERKEN UYARI SİSTEMİ 🚨\n"
-                    body += f"Uyarı Seviyesi: {istanbul_warning['alert_level']}\n"
-                    body += f"Uyarı Skoru: {istanbul_warning['alert_score']}/1.0\n"
-                    body += f"Mesaj: {istanbul_warning['message']}\n"
-                    if istanbul_warning.get('time_to_event'):
-                        body += f"Tahmini Süre: {istanbul_warning['time_to_event']}\n"
-                    body += f"\n⚠️ Lütfen hazırlıklı olun ve acil durum planınızı gözden geçirin!"
-                    send_whatsapp_notification(number, body)
+                    # Son gönderilen uyarıyı kontrol et (spam önleme)
+                    last_alert_key = f"istanbul_alert_{number}"
+                    last_alert_time = getattr(check_for_big_earthquakes, last_alert_key, 0)
+                    current_time = time.time()
+                    
+                    # Aynı seviye uyarı için 6 saatte bir gönder
+                    if current_time - last_alert_time > 21600 or istanbul_warning['alert_level'] == 'KRİTİK':
+                        body = f"🚨 İSTANBUL ERKEN UYARI SİSTEMİ 🚨\n"
+                        body += f"⚠️ DEPREM ÖNCESİ UYARI ⚠️\n\n"
+                        body += f"Uyarı Seviyesi: {istanbul_warning['alert_level']}\n"
+                        body += f"Uyarı Skoru: {istanbul_warning.get('alert_score', 0):.2f}/1.0\n"
+                        body += f"Mesaj: {istanbul_warning['message']}\n"
+                        if istanbul_warning.get('time_to_event'):
+                            body += f"Tahmini Süre: {istanbul_warning['time_to_event']}\n"
+                        body += f"\n📍 Konumunuz: İstanbul\n"
+                        body += f"\n⚠️ Lütfen hazırlıklı olun ve acil durum planınızı gözden geçirin!\n"
+                        body += f"📱 Acil durum çantanızı hazırlayın.\n"
+                        body += f"🏠 Güvenli alanlarınızı belirleyin."
+                        
+                        if send_whatsapp_notification(number, body):
+                            setattr(check_for_big_earthquakes, last_alert_key, current_time)
 
         for eq in earthquakes:
             mag = eq.get('mag', 0)
@@ -1546,10 +1620,18 @@ def check_for_big_earthquakes():
                             
                             send_whatsapp_notification(number, body)
 
-# Arka plan iş parçacığını başlat
+# Arka plan iş parçacıklarını başlat
+# 1. Sürekli deprem kontrolü (30 saniyede bir)
 alert_thread = Thread(target=check_for_big_earthquakes)
 alert_thread.daemon = True 
 alert_thread.start()
+
+# 2. Geçmiş 1 ay veri toplama (her 1 saatte bir)
+historical_data_thread = Thread(target=collect_historical_data)
+historical_data_thread.daemon = True
+historical_data_thread.start()
+
+print("[BAŞLATILDI] Sürekli deprem izleme ve tarihsel veri toplama aktif!")
 
 
 if __name__ == '__main__':

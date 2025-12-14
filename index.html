@@ -24,36 +24,6 @@
         
         <hr style="margin-top: 30px; margin-bottom: 30px;">
         
-        <h2>📊 Hasar Tahmini Hesaplayıcı</h2>
-        <div id="damage-estimator" style="padding: 20px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 20px; background-color: #f9f9f9;">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
-                <div>
-                    <label style="display: block; margin-bottom: 5px; font-weight: 600;">Deprem Büyüklüğü (M):</label>
-                    <input type="number" id="damageMagnitude" step="0.1" min="0" max="10" value="5.5" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px; font-weight: 600;">Derinlik (km):</label>
-                    <input type="number" id="damageDepth" step="1" min="0" max="100" value="10" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px; font-weight: 600;">Mesafe (km):</label>
-                    <input type="number" id="damageDistance" step="1" min="0" max="500" value="50" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px; font-weight: 600;">Bina Tipi:</label>
-                    <select id="damageBuildingType" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
-                        <option value="normal">Normal Bina</option>
-                        <option value="reinforced">Güçlendirilmiş Bina</option>
-                        <option value="weak">Zayıf Bina</option>
-                    </select>
-                </div>
-            </div>
-            <button id="calculateDamageButton" class="action-button" style="width: 100%;">Hasar Tahmini Hesapla</button>
-            <div id="damageResult" style="margin-top: 15px; padding: 15px; border-radius: 8px; display: none;"></div>
-        </div>
-        
-        <hr style="margin-top: 30px; margin-bottom: 30px;">
-        
         <h2>🏙️ İl Bazında Otomatik Hasar Tahmini (M ≥ 5.0)</h2>
         <div id="city-damage-analysis" style="padding: 20px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 20px; background-color: #f9f9f9;">
             <p style="margin-bottom: 15px; color: #666; font-size: 0.9em;">

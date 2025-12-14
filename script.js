@@ -43,8 +43,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const locationStatus = document.getElementById('locationStatus');
     const numberInput = document.getElementById('numberInput');
     
-    const calculateDamageButton = document.getElementById('calculateDamageButton');
-    const damageResult = document.getElementById('damageResult');
+    // Manuel hasar tahmini kaldırıldı
+    // Manuel hasar tahmini kaldırıldı
     const predictRiskButton = document.getElementById('predictRiskButton');
     const riskPredictionResult = document.getElementById('riskPredictionResult');
     const analyzeCityDamageButton = document.getElementById('analyzeCityDamageButton');
@@ -283,65 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
 
-    // Hasar Tahmini Hesaplama
-    calculateDamageButton.addEventListener('click', () => {
-        const magnitude = parseFloat(document.getElementById('damageMagnitude').value);
-        const depth = parseFloat(document.getElementById('damageDepth').value);
-        const distance = parseFloat(document.getElementById('damageDistance').value);
-        const buildingType = document.getElementById('damageBuildingType').value;
-        
-        if (!magnitude || magnitude <= 0) {
-            alert('Lütfen geçerli bir deprem büyüklüğü giriniz.');
-            return;
-        }
-        
-        fetch(`${RENDER_API_BASE_URL}/api/damage-estimate`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                magnitude: magnitude,
-                depth: depth,
-                distance: distance,
-                building_type: buildingType
-            }),
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                damageResult.innerHTML = `<p style="color: red;">Hata: ${data.error}</p>`;
-                damageResult.style.display = 'block';
-                return;
-            }
-            
-            let levelColor = '#2ecc71'; // Yeşil
-            if (data.damage_score >= 70) levelColor = '#e74c3c'; // Kırmızı
-            else if (data.damage_score >= 50) levelColor = '#e67e22'; // Turuncu
-            else if (data.damage_score >= 30) levelColor = '#f39c12'; // Sarı
-            
-            damageResult.innerHTML = `
-                <div style="background-color: ${levelColor}; color: white; padding: 15px; border-radius: 8px;">
-                    <h3 style="margin: 0 0 10px 0;">Hasar Seviyesi: ${data.level}</h3>
-                    <p style="margin: 5px 0; font-size: 1.2em;"><strong>Hasar Skoru: ${data.damage_score}/100</strong></p>
-                    <p style="margin: 10px 0;">${data.description}</p>
-                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.3);">
-                        <p style="margin: 5px 0; font-size: 0.9em;"><strong>Faktörler:</strong></p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">Büyüklük Etkisi: ${data.factors.magnitude_impact}</p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">Derinlik Faktörü: ${data.factors.depth_factor}</p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">Mesafe Faktörü: ${data.factors.distance_factor}</p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">Bina Faktörü: ${data.factors.building_factor}x</p>
-                    </div>
-                </div>
-            `;
-            damageResult.style.display = 'block';
-        })
-        .catch(error => {
-            console.error('Hasar tahmini hatası:', error);
-            damageResult.innerHTML = `<p style="color: red;">Hata: Sunucuya bağlanılamadı.</p>`;
-            damageResult.style.display = 'block';
-        });
-    });
+    // Manuel hasar tahmini kaldırıldı - otomatik il bazında analiz kullanılıyor
     
     // Risk Tahmini
     predictRiskButton.addEventListener('click', () => {

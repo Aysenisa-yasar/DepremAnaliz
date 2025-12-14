@@ -27,7 +27,14 @@ import pandas as pd
 
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
-CORS(app) 
+# CORS ayarları - GitHub Pages ve diğer domain'lerden erişim için
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["*"],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+}) 
 
 # Kandilli verilerini çeken üçüncü taraf API
 KANDILLI_API = 'https://api.orhanaydogdu.com.tr/deprem/kandilli/live'

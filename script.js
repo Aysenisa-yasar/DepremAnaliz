@@ -1,7 +1,6 @@
 // script.js
 // API URL'ini dinamik olarak belirle
-// Render.com backend URL'ini buraya girin (deploy sonrası)
-const RENDER_BACKEND_URL = 'https://depremanaliz.onrender.com'; // Render.com backend URL
+const RENDER_BACKEND_URL = 'https://depremanaliz.onrender.com';
 
 const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:5000'

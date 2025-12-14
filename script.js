@@ -76,14 +76,26 @@ document.addEventListener('DOMContentLoaded', () => {
         listContainer.innerHTML = '<p>YZ risk analizi verileri yükleniyor...</p>';
         initializeMap(); 
 
-        fetch(apiURL)
+        fetch(apiURL, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors'
+        })
             .then(response => {
-                if (!response.ok && response.status !== 404 && response.status !== 503 && response.status !== 500) {
-                    throw new Error('YZ API bağlantı hatası: Beklenmeyen Kod ' + response.status);
+                if (!response.ok) {
+                    if (response.status === 503 || response.status === 502) {
+                        listContainer.innerHTML = `<p style="color: #FFA726;">⚠️ Sunucu uyku modunda. Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>`;
+                        return null;
+                    }
+                    throw new Error(`Sunucu hatası: ${response.status}`);
                 }
                 return response.json();
             })
             .then(data => {
+                if (!data) return; // Uyku modu durumunda çık
+                
                 listContainer.innerHTML = '';
                 let bounds = [];
                 
@@ -140,14 +152,28 @@ document.addEventListener('DOMContentLoaded', () => {
     function fetchEarthquakeData() {
         initializeMap2(); 
 
-        fetch(apiURL)
+        fetch(apiURL, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors'
+        })
             .then(response => {
-                if (!response.ok && response.status !== 404 && response.status !== 503 && response.status !== 500) {
-                    throw new Error('YZ API bağlantı hatası: Beklenmeyen Kod ' + response.status);
+                if (!response.ok) {
+                    if (response.status === 503 || response.status === 502) {
+                        console.warn('Sunucu uyku modunda, cache verisi kullanılıyor');
+                        return null; // Hata fırlatma, sadece null döndür
+                    }
+                    throw new Error(`Sunucu hatası: ${response.status}`);
                 }
                 return response.json();
             })
             .then(data => {
+                if (!data) {
+                    console.warn('Veri alınamadı, harita boş kalabilir');
+                    return;
+                }
                 let bounds = [];
                 
                 // Hata kontrolü
@@ -226,6 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 console.error('Veri çekme hatası:', error);
+                listContainer.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>`;
             });
     }
 
@@ -270,6 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Mutlak URL ile POST isteği gönderiliyor.
         fetch(`${RENDER_API_BASE_URL}/api/set-alert`, {
+            mode: 'cors',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -315,6 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
         riskPredictionResult.style.display = 'block';
         
         fetch(`${RENDER_API_BASE_URL}/api/predict-risk`, {
+            mode: 'cors',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -379,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch(error => {
             console.error('Risk tahmini hatası:', error);
-            riskPredictionResult.innerHTML = `<p style="color: red;">Hata: Sunucuya bağlanılamadı.</p>`;
+            riskPredictionResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
         });
     });
     
@@ -388,7 +417,13 @@ document.addEventListener('DOMContentLoaded', () => {
         cityDamageResult.innerHTML = '<p>İl bazında hasar analizi yapılıyor...</p>';
         cityDamageResult.style.display = 'block';
         
-        fetch(`${RENDER_API_BASE_URL}/api/city-damage-analysis`)
+        fetch(`${RENDER_API_BASE_URL}/api/city-damage-analysis`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors'
+        })
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
@@ -451,8 +486,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 cityDamageResult.innerHTML = html;
             })
             .catch(error => {
-                console.error('İl bazında hasar analizi hatası:', error);
-                cityDamageResult.innerHTML = `<p style="color: red;">Hata: Sunucuya bağlanılamadı.</p>`;
+                console.error('İl bazında risk analizi hatası:', error);
+                cityDamageResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
             });
     });
     
@@ -461,7 +496,13 @@ document.addEventListener('DOMContentLoaded', () => {
         istanbulWarningResult.innerHTML = '<p>İstanbul erken uyarı durumu kontrol ediliyor...</p>';
         istanbulWarningResult.style.display = 'block';
         
-        fetch(`${RENDER_API_BASE_URL}/api/istanbul-early-warning`)
+        fetch(`${RENDER_API_BASE_URL}/api/istanbul-early-warning`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors'
+        })
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
@@ -496,7 +537,7 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 console.error('İstanbul erken uyarı hatası:', error);
-                istanbulWarningResult.innerHTML = `<p style="color: red;">Hata: Sunucuya bağlanılamadı.</p>`;
+                istanbulWarningResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
             });
     });
 
@@ -545,6 +586,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Send to backend
         fetch(`${API_URL}/api/chatbot`, {
+            mode: 'cors',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

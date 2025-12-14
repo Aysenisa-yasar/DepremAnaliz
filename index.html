@@ -18,122 +18,120 @@
             <p class="subtitle">Gerçek zamanlı deprem analizi ve erken uyarı sistemi</p>
         </div>
 
-        <div class="card">
-            <h2>🗺️ Canlı Deprem Haritaları</h2>
-            <div class="maps-container">
-                <div class="map-wrapper">
-                    <h3>🤖 YZ Risk Analizi</h3>
-                    <div id="mapid"></div>
+        <!-- Modern Asymmetric Grid Layout -->
+        <div class="cards-grid">
+            <!-- Büyük Kart - Haritalar (2 kolon) -->
+            <div class="card card-large card-featured">
+                <div class="card-badge">⭐ ÖNE ÇIKAN</div>
+                <h2>🗺️ Canlı Deprem Haritaları</h2>
+                <div class="maps-container">
+                    <div class="map-wrapper">
+                        <h3>🤖 YZ Risk Analizi</h3>
+                        <div id="mapid"></div>
+                    </div>
+                    <div class="map-wrapper">
+                        <h3>📍 Son 1 Gün Depremler & Aktif Fay Hatları</h3>
+                        <div id="mapid2"></div>
+                    </div>
                 </div>
-                <div class="map-wrapper">
-                    <h3>📍 Son 1 Gün Depremler & Aktif Fay Hatları</h3>
-                    <div id="mapid2"></div>
+                <button id="refreshButton" class="btn-modern btn-large">🔄 Haritaları Yenile</button>
+                <div id="earthquake-list" style="margin-top: 20px;">
+                    <p>YZ Risk analizi verileri yükleniyor...</p>
                 </div>
             </div>
-            <button id="refreshButton" style="width: 100%; margin-top: 20px;">🔄 Haritaları Yenile</button>
-            <div id="earthquake-list" style="margin-top: 20px;">
-                <p>YZ Risk analizi verileri yükleniyor...</p>
-            </div>
-        </div>
 
-        <div class="card">
-            <h2>🏙️ İl Bazında Risk Analizi</h2>
-            <p style="margin-bottom: 15px; color: #ffffff !important;">
-                Son depremlere ve aktif fay hatlarına göre Türkiye'deki tüm illerin risk analizi. Magnitude filtresi yok, tüm son depremler analiz edilir.
-                <br><strong>✨ YENİ:</strong> Her il için bina risk analizi (güçlendirilmiş/normal/zayıf bina yüzdesi ve hasar tahmini) dahil!
-            </p>
-            <button id="analyzeCityDamageButton" class="action-button" style="width: 100%;">🔍 İl Bazında Risk Analizi Yap</button>
-            <div id="cityDamageResult" style="margin-top: 15px; display: none;"></div>
-        </div>
-
-        <div class="card">
-            <h2>🇹🇷 Tüm Türkiye Erken Uyarı Sistemi (M ≥ 5.0)</h2>
-            <p style="margin-bottom: 15px; color: #ffffff !important;">
-                Tüm Türkiye için yapay zeka destekli erken uyarı sistemi. M ≥ 5.0 yıkıcı deprem riskini tespit ederek önceden uyarı verir.
-                <br><strong>Uyarı Süreleri:</strong> KRİTİK (0-24 saat), YÜKSEK (24-72 saat), ORTA (1 hafta)
-            </p>
-            <button id="checkTurkeyWarningButton" class="action-button" style="width: 100%;">🔍 Tüm Türkiye Erken Uyarı Durumunu Kontrol Et</button>
-            <div id="turkeyWarningResult" style="margin-top: 15px; display: none;"></div>
-        </div>
-
-        <div class="card">
-            <h2>🏛️ İstanbul Erken Uyarı Sistemi</h2>
-            <p style="margin-bottom: 15px; color: #ffffff !important;">
-                İstanbul için özel geliştirilmiş yapay zeka destekli erken uyarı sistemi. 
-                Deprem öncesi sinyalleri tespit ederek önceden uyarı verir.
-            </p>
-            <button id="checkIstanbulWarningButton" class="action-button" style="width: 100%; margin-bottom: 20px;">🔍 İstanbul Erken Uyarı Durumunu Kontrol Et</button>
-            <div id="istanbulWarningResult" style="margin-top: 15px; display: none;"></div>
-            
-            <hr style="margin: 25px 0; border: 1px solid rgba(255, 23, 68, 0.3);">
-            
-            <h3 style="margin-top: 20px; margin-bottom: 10px; color: #ffffff !important;">📱 İstanbul İçin WhatsApp Bildirimleri</h3>
-            <p style="margin-bottom: 15px; color: #ffffff !important; font-size: 0.9em;">
-                İstanbul'da deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilir.
-                Uyarı seviyeleri: KRİTİK (0-24 saat), YÜKSEK (24-72 saat), ORTA (1 hafta).
-            </p>
-            <div style="margin-bottom: 15px; padding: 10px; background-color: rgba(255, 193, 7, 0.15); border-left: 3px solid #FFC107; border-radius: 5px;">
-                <p style="margin: 0; font-size: 0.85em; color: #ffffff !important;">
-                    ⚠️ <strong>Önemli:</strong> Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor (ücretsiz). 
-                    <a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">Twilio Console</a> > Messaging > WhatsApp Sandbox sayfasından "join code" ile ekleyebilirsiniz.
+            <!-- Orta Kart - İstanbul (1 kolon, yüksek) -->
+            <div class="card card-medium card-istanbul">
+                <div class="card-icon">🏛️</div>
+                <h2>İstanbul Erken Uyarı</h2>
+                <p style="margin-bottom: 20px; color: rgba(255, 255, 255, 0.9) !important; font-size: 0.95em;">
+                    İstanbul için özel geliştirilmiş yapay zeka destekli erken uyarı sistemi. Deprem öncesi sinyalleri tespit ederek önceden uyarı verir.
                 </p>
-            </div>
-            <div style="margin-top: 15px;">
-                <label for="istanbulNumberInput" style="display: block; margin-bottom: 5px; font-weight: 600;">WhatsApp Numarası (Ülke kodu ile, Örn: +90532xxxxxxx):</label>
-                <input type="tel" id="istanbulNumberInput" placeholder="+905xxxxxxxxx" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 23, 68, 0.3); background: rgba(255, 23, 68, 0.1); color: white; font-size: 1em;">
-            </div>
-            <button id="saveIstanbulAlertButton" class="save-button" style="width: 100%; margin-top: 15px;">
-                🔔 İstanbul Erken Uyarı Bildirimlerini Aktifleştir
-            </button>
-            <div id="istanbulAlertResult" style="margin-top: 15px; display: none;"></div>
-        </div>
-
-        <div class="card">
-            <h2>🔮 Gelişmiş Yapay Zeka Destekli Risk Tahmini</h2>
-            <p style="margin-bottom: 15px;">Konumunuz için deprem risk tahmini yapmak için konumunuzu belirleyin:</p>
-            <button id="predictRiskButton" class="action-button">📍 Konumum İçin Risk Tahmini Yap</button>
-            <div id="riskPredictionResult" style="margin-top: 15px; padding: 15px; border-radius: 8px; display: none;"></div>
-        </div>
-
-
-        <div class="card">
-            <h2>🚨 Acil Durum WhatsApp Bildirim Ayarları (M ≥ 5.0)</h2>
-            <h3 style="margin-top: 20px; margin-bottom: 10px; color: #ffffff !important;">1. Konumunuzu Belirleyin</h3>
-            <button id="getLocationButton" class="action-button">📍 Konumumu Otomatik Belirle</button>
-            <p id="locationStatus" style="margin-top: 10px; font-weight: bold;"></p>
-            
-            <h3 style="margin-top: 20px; margin-bottom: 10px; color: #ffffff !important;">2. Bildirim Bilgilerini Girin</h3>
-            <div style="margin-top: 15px;">
-                <label for="numberInput" style="display: block; margin-bottom: 5px; font-weight: 600;">Alıcı WhatsApp Numarası (Ülke kodu ile, Örn: +90532xxxxxxx):</label>
-                <input type="tel" id="numberInput" placeholder="+905xxxxxxxxx">
-            </div>
-            
-            <button id="saveSettingsButton" class="save-button" style="width: 100%; margin-top: 15px;">
-                💾 Ayarları Kaydet ve Bildirimi Etkinleştir
-            </button>
-            
-            <p style="margin-top: 15px; font-style: italic; color: #ffffff !important; font-size: 0.9em;">
-                * Bildirimler sadece tespit edilen konuma yaklaşık 150 km yakınlıkta M ≥ 5.0 deprem olduğunda gönderilecektir.
-            </p>
-            
-            <div style="margin-top: 20px; padding: 15px; background-color: rgba(255, 193, 7, 0.2); border: 2px solid #FFC107; border-radius: 8px;">
-                <h4 style="margin: 0 0 10px 0; color: #ffffff;">📱 WhatsApp Sandbox'a Katılma (ÜCRETSİZ)</h4>
-                <p style="margin: 5px 0; font-size: 0.9em; color: #ffffff !important;">
-                    <strong>ÖNEMLİ:</strong> Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor. Bu işlem <strong>ücretsizdir</strong> ve sadece bir kez yapılır.
+                <button id="checkIstanbulWarningButton" class="btn-modern btn-primary">🔍 Durum Kontrol Et</button>
+                <div id="istanbulWarningResult" style="margin-top: 15px; display: none;"></div>
+                
+                <div class="divider"></div>
+                
+                <h3 style="margin: 25px 0 15px 0; color: #ffffff !important; font-size: 1.1em;">📱 WhatsApp Bildirimleri</h3>
+                <p style="margin-bottom: 15px; color: rgba(255, 255, 255, 0.8) !important; font-size: 0.9em;">
+                    Uyarı seviyeleri: KRİTİK (0-24 saat), YÜKSEK (24-72 saat), ORTA (1 hafta).
                 </p>
-                <div style="margin-top: 10px; padding: 10px; background-color: rgba(0, 0, 0, 0.3); border-radius: 5px;">
-                    <p style="margin: 5px 0; font-size: 0.85em;"><strong>Adımlar:</strong></p>
-                    <ol style="margin: 5px 0; padding-left: 20px; font-size: 0.85em;">
+                <div class="warning-box">
+                    <p style="margin: 0; font-size: 0.85em; color: #ffffff !important;">
+                        ⚠️ <strong>Önemli:</strong> Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor (ücretsiz).
+                    </p>
+                </div>
+                <input type="tel" id="istanbulNumberInput" placeholder="+905xxxxxxxxx" class="input-modern">
+                <button id="saveIstanbulAlertButton" class="btn-modern btn-success">🔔 Bildirimleri Aktifleştir</button>
+                <div id="istanbulAlertResult" style="margin-top: 15px; display: none;"></div>
+            </div>
+
+            <!-- Küçük Kartlar - Grid -->
+            <div class="card card-small">
+                <div class="card-icon">🏙️</div>
+                <h2>İl Bazında Risk</h2>
+                <p style="margin-bottom: 15px; color: rgba(255, 255, 255, 0.9) !important; font-size: 0.9em;">
+                    Tüm illerin risk analizi. Bina risk analizi dahil!
+                </p>
+                <button id="analyzeCityDamageButton" class="btn-modern btn-secondary">🔍 Analiz Yap</button>
+                <div id="cityDamageResult" style="margin-top: 15px; display: none;"></div>
+            </div>
+
+            <div class="card card-small">
+                <div class="card-icon">🇹🇷</div>
+                <h2>Türkiye Uyarı</h2>
+                <p style="margin-bottom: 15px; color: rgba(255, 255, 255, 0.9) !important; font-size: 0.9em;">
+                    M ≥ 5.0 deprem riski için erken uyarı sistemi.
+                </p>
+                <button id="checkTurkeyWarningButton" class="btn-modern btn-warning">🔍 Kontrol Et</button>
+                <div id="turkeyWarningResult" style="margin-top: 15px; display: none;"></div>
+            </div>
+
+            <div class="card card-small">
+                <div class="card-icon">🔮</div>
+                <h2>AI Risk Tahmini</h2>
+                <p style="margin-bottom: 15px; color: rgba(255, 255, 255, 0.9) !important; font-size: 0.9em;">
+                    Konumunuz için gelişmiş yapay zeka destekli risk tahmini.
+                </p>
+                <button id="predictRiskButton" class="btn-modern btn-info">📍 Risk Tahmini</button>
+                <div id="riskPredictionResult" style="margin-top: 15px; padding: 15px; border-radius: 8px; display: none;"></div>
+            </div>
+
+            <!-- Geniş Kart - WhatsApp Ayarları (2 kolon) -->
+            <div class="card card-wide">
+                <div class="card-header-flex">
+                    <div>
+                        <div class="card-icon">🚨</div>
+                        <h2>Acil Durum Bildirimleri</h2>
+                    </div>
+                </div>
+                <div class="settings-grid">
+                    <div class="setting-section">
+                        <h3 style="margin-bottom: 15px; color: #ffffff !important; font-size: 1.1em;">📍 1. Konumunuzu Belirleyin</h3>
+                        <button id="getLocationButton" class="btn-modern btn-outline">📍 Konumumu Belirle</button>
+                        <p id="locationStatus" style="margin-top: 15px; font-weight: 500; min-height: 20px;"></p>
+                    </div>
+                    <div class="setting-section">
+                        <h3 style="margin-bottom: 15px; color: #ffffff !important; font-size: 1.1em;">📱 2. WhatsApp Numarası</h3>
+                        <input type="tel" id="numberInput" placeholder="+905xxxxxxxxx" class="input-modern">
+                        <button id="saveSettingsButton" class="btn-modern btn-success" style="width: 100%; margin-top: 15px;">💾 Kaydet ve Aktifleştir</button>
+                        <p style="margin-top: 15px; font-style: italic; color: rgba(255, 255, 255, 0.7) !important; font-size: 0.85em;">
+                            * M ≥ 5.0 depremlerde 150 km içindeyse bildirim alırsınız.
+                        </p>
+                    </div>
+                </div>
+                <div class="info-box">
+                    <h4 style="margin: 0 0 10px 0; color: #ffffff;">📱 WhatsApp Sandbox'a Katılma (ÜCRETSİZ)</h4>
+                    <p style="margin: 5px 0; font-size: 0.9em; color: rgba(255, 255, 255, 0.9) !important;">
+                        <strong>ÖNEMLİ:</strong> Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor.
+                    </p>
+                    <ol style="margin: 10px 0; padding-left: 20px; font-size: 0.85em; color: rgba(255, 255, 255, 0.8);">
                         <li>Twilio Console'a gidin: <a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">console.twilio.com</a></li>
                         <li><strong>Messaging</strong> > <strong>Try it out</strong> > <strong>Send a WhatsApp message</strong></li>
-                        <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın (örn: <code>join abc-xyz</code>)</li>
-                        <li>WhatsApp'ı açın ve <strong>+1 415 523 8886</strong> numarasına bu kodu gönderin</li>
-                        <li>Onay mesajı gelecek: <strong>"You're all set!"</strong></li>
+                        <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın</li>
+                        <li>WhatsApp'tan <strong>+1 415 523 8886</strong> numarasına bu kodu gönderin</li>
                     </ol>
                 </div>
-                <p style="margin: 10px 0 0 0; font-size: 0.8em; color: #ffffff !important;">
-                    💡 <strong>Not:</strong> Bu işlem sadece bir kez yapılır. Sandbox'a katıldıktan sonra tüm bildirimleri alabilirsiniz!
-                </p>
             </div>
         </div>
     </div>

@@ -216,26 +216,28 @@ h4 {
 
 /* Buttons */
 button, .action-button, .save-button {
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    background: #6B0000 !important;
     color: var(--color-white);
     border: none;
-    padding: 15px 30px;
-    font-size: 1em;
+    padding: 10px 20px;
+    font-size: 0.85em;
     font-weight: 600;
-    border-radius: 12px;
+    border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s;
-    box-shadow: 0 5px 15px rgba(255, 23, 68, 0.3);
+    box-shadow: 0 3px 10px rgba(107, 0, 0, 0.4);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
 button:hover, .action-button:hover, .save-button:hover {
+    background: #8B0000 !important;
     transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(255, 23, 68, 0.4);
+    box-shadow: 0 5px 15px rgba(107, 0, 0, 0.5);
 }
 
 button:active, .action-button:active, .save-button:active {
+    background: #5B0000 !important;
     transform: translateY(0);
 }
 
@@ -455,17 +457,22 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-send {
-    width: 45px;
-    height: 45px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    background: #6B0000 !important;
     color: white;
     border: none;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 16px;
+    transition: all 0.3s;
+}
+
+.chatbot-send:hover {
+    background: #8B0000 !important;
 }
 
 /* Responsive */

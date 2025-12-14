@@ -50,8 +50,24 @@
                 İstanbul için özel geliştirilmiş yapay zeka destekli erken uyarı sistemi. 
                 Deprem öncesi sinyalleri tespit ederek önceden uyarı verir.
             </p>
-            <button id="checkIstanbulWarningButton" class="action-button" style="width: 100%;">🔍 İstanbul Erken Uyarı Durumunu Kontrol Et</button>
+            <button id="checkIstanbulWarningButton" class="action-button" style="width: 100%; margin-bottom: 20px;">🔍 İstanbul Erken Uyarı Durumunu Kontrol Et</button>
             <div id="istanbulWarningResult" style="margin-top: 15px; display: none;"></div>
+            
+            <hr style="margin: 25px 0; border: 1px solid rgba(255, 23, 68, 0.3);">
+            
+            <h3 style="margin-top: 20px; margin-bottom: 10px;">📱 İstanbul İçin WhatsApp Bildirimleri</h3>
+            <p style="margin-bottom: 15px; color: var(--color-light-text); font-size: 0.9em;">
+                İstanbul'da deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilir.
+                Uyarı seviyeleri: KRİTİK (0-24 saat), YÜKSEK (24-72 saat), ORTA (1 hafta).
+            </p>
+            <div style="margin-top: 15px;">
+                <label for="istanbulNumberInput" style="display: block; margin-bottom: 5px; font-weight: 600;">WhatsApp Numarası (Ülke kodu ile, Örn: +90532xxxxxxx):</label>
+                <input type="tel" id="istanbulNumberInput" placeholder="+905xxxxxxxxx" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 23, 68, 0.3); background: rgba(255, 23, 68, 0.1); color: white; font-size: 1em;">
+            </div>
+            <button id="saveIstanbulAlertButton" class="save-button" style="width: 100%; margin-top: 15px;">
+                🔔 İstanbul Erken Uyarı Bildirimlerini Aktifleştir
+            </button>
+            <div id="istanbulAlertResult" style="margin-top: 15px; display: none;"></div>
         </div>
 
         <div class="card">

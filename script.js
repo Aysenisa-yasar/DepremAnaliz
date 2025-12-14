@@ -597,6 +597,67 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     });
 
+    // İstanbul WhatsApp Bildirim Formu
+    const istanbulNumberInput = document.getElementById('istanbulNumberInput');
+    const saveIstanbulAlertButton = document.getElementById('saveIstanbulAlertButton');
+    const istanbulAlertResult = document.getElementById('istanbulAlertResult');
+
+    if (saveIstanbulAlertButton && istanbulNumberInput && istanbulAlertResult) {
+        saveIstanbulAlertButton.addEventListener('click', () => {
+            const number = istanbulNumberInput.value.trim();
+            
+            if (!number) {
+                istanbulAlertResult.innerHTML = '<p style="color: #FF1744;">⚠️ Lütfen WhatsApp numaranızı girin.</p>';
+                istanbulAlertResult.style.display = 'block';
+                return;
+            }
+            
+            if (!number.startsWith('+')) {
+                istanbulAlertResult.innerHTML = '<p style="color: #FF1744;">⚠️ Telefon numarası ülke kodu ile başlamalıdır. Örnek: +90532xxxxxxx</p>';
+                istanbulAlertResult.style.display = 'block';
+                return;
+            }
+            
+            istanbulAlertResult.innerHTML = '<p>İstanbul erken uyarı bildirimleri kaydediliyor...</p>';
+            istanbulAlertResult.style.display = 'block';
+            saveIstanbulAlertButton.disabled = true;
+            saveIstanbulAlertButton.textContent = '⏳ Kaydediliyor...';
+            
+            fetch(`${RENDER_API_BASE_URL}/api/istanbul-alert`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors',
+                body: JSON.stringify({
+                    number: number
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        istanbulAlertResult.innerHTML = `
+                            <div style="background-color: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; color: #2ecc71; padding: 15px; border-radius: 8px;">
+                                <p style="margin: 0; font-weight: 600;">✅ ${data.message}</p>
+                                <p style="margin: 10px 0 0 0; font-size: 0.9em;">Deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilecektir.</p>
+                            </div>
+                        `;
+                        istanbulNumberInput.value = '';
+                    } else {
+                        istanbulAlertResult.innerHTML = `<p style="color: #FF1744;">❌ Hata: ${data.message || 'Bildirim kaydedilemedi'}</p>`;
+                    }
+                    saveIstanbulAlertButton.disabled = false;
+                    saveIstanbulAlertButton.textContent = '🔔 İstanbul Erken Uyarı Bildirimlerini Aktifleştir';
+                })
+                .catch(error => {
+                    console.error('İstanbul bildirim hatası:', error);
+                    istanbulAlertResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+                    saveIstanbulAlertButton.disabled = false;
+                    saveIstanbulAlertButton.textContent = '🔔 İstanbul Erken Uyarı Bildirimlerini Aktifleştir';
+                });
+        });
+    }
+
     refreshButton.addEventListener('click', fetchData);
     
     // İlk yüklemede her iki haritayı da başlat

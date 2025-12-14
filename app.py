@@ -1188,39 +1188,9 @@ def predict_earthquake_risk(earthquakes, target_lat, target_lon):
     """
     Yapay zeka destekli deprem risk tahmini yapar.
     Son depremlerin pattern'ini analiz ederek risk skoru hesaplar.
+    İYİLEŞTİRİLMİŞ VERSİYON: Daha sağlıklı ve dengeli risk skorlama.
     """
-    if not earthquakes or len(earthquakes) < 5:
-        return {"risk_level": "Düşük", "risk_score": 2.0, "reason": "Yeterli veri yok"}
-    
-    # Son 24 saatteki depremleri filtrele
-    recent_earthquakes = []
-    current_time = time.time()
-    
-    for eq in earthquakes:
-        if eq.get('geojson') and eq['geojson'].get('coordinates'):
-            lon, lat = eq['geojson']['coordinates']
-            mag = eq.get('mag', 0)
-            distance = haversine(target_lat, target_lon, lat, lon)
-            
-            # 200 km içindeki depremleri al
-            if distance < 200 and mag >= 3.0:
-                recent_earthquakes.append({
-                    'mag': mag,
-                    'distance': distance,
-                    'lat': lat,
-                    'lon': lon
-                })
-    
-    if not recent_earthquakes:
-        return {"risk_level": "Düşük", "risk_score": 2.0, "reason": "Yakın bölgede aktivite yok"}
-    
-    # Risk faktörleri
-    avg_magnitude = np.mean([eq['mag'] for eq in recent_earthquakes])
-    max_magnitude = max([eq['mag'] for eq in recent_earthquakes])
-    count = len(recent_earthquakes)
-    avg_distance = np.mean([eq['distance'] for eq in recent_earthquakes])
-    
-    # Yakın fay hattı kontrolü
+    # Yakın fay hattı kontrolü (her zaman hesaplanır)
     nearest_fault_distance = float('inf')
     for fault in TURKEY_FAULT_LINES:
         for coord in fault['coords']:
@@ -1228,33 +1198,167 @@ def predict_earthquake_risk(earthquakes, target_lat, target_lon):
             dist = haversine(target_lat, target_lon, fault_lat, fault_lon)
             nearest_fault_distance = min(nearest_fault_distance, dist)
     
-    # Risk skoru hesaplama (0-10 arası)
-    risk_score = 0
+    # Deprem verisi yoksa bile fay hattı mesafesine göre temel risk döndür
+    if not earthquakes or len(earthquakes) == 0:
+        # Sadece fay hattı mesafesine göre risk
+        if nearest_fault_distance < 20:
+            base_risk = 3.5
+        elif nearest_fault_distance < 50:
+            base_risk = 2.5
+        elif nearest_fault_distance < 100:
+            base_risk = 1.5
+        else:
+            base_risk = 1.0
+        
+        level = "Düşük" if base_risk < 2.5 else "Orta"
+        return {
+            "risk_level": level,
+            "risk_score": round(base_risk, 1),
+            "factors": {
+                "max_magnitude": 0,
+                "recent_count": 0,
+                "avg_distance": 0,
+                "nearest_fault_km": round(nearest_fault_distance, 1)
+            },
+            "reason": f"Yakın bölgede son deprem aktivitesi yok. En yakın fay hattı: {nearest_fault_distance:.1f} km"
+        }
     
-    # Büyüklük faktörü
-    risk_score += min(3.0, max_magnitude * 0.4)
+    # Son 7 gün içindeki depremleri filtrele (24 saat yerine 7 gün - daha kapsamlı analiz)
+    recent_earthquakes = []
+    current_time = time.time()
+    seven_days_ago = current_time - (7 * 24 * 3600)
     
-    # Aktivite yoğunluğu
-    risk_score += min(2.0, count * 0.2)
+    for eq in earthquakes:
+        if eq.get('geojson') and eq['geojson'].get('coordinates'):
+            lon, lat = eq['geojson']['coordinates']
+            mag = eq.get('mag', 0)
+            timestamp = eq.get('timestamp', 0)
+            distance = haversine(target_lat, target_lon, lat, lon)
+            
+            # 300 km içindeki tüm depremleri al (magnitude filtresi yok - tüm depremler önemli)
+            if distance < 300 and timestamp >= seven_days_ago:
+                recent_earthquakes.append({
+                    'mag': mag,
+                    'distance': distance,
+                    'lat': lat,
+                    'lon': lon,
+                    'depth': eq.get('depth', 10),
+                    'timestamp': timestamp
+                })
     
-    # Mesafe faktörü (yakın depremler daha riskli)
-    risk_score += min(2.0, max(0, (200 - avg_distance) / 100))
+    # Risk faktörleri hesaplama
+    if not recent_earthquakes:
+        # Deprem yok ama fay hattı yakınsa risk var
+        if nearest_fault_distance < 20:
+            base_risk = 3.0
+        elif nearest_fault_distance < 50:
+            base_risk = 2.0
+        elif nearest_fault_distance < 100:
+            base_risk = 1.5
+        else:
+            base_risk = 1.0
+        
+        level = "Düşük" if base_risk < 2.5 else "Orta"
+        return {
+            "risk_level": level,
+            "risk_score": round(base_risk, 1),
+            "factors": {
+                "max_magnitude": 0,
+                "recent_count": 0,
+                "avg_distance": 0,
+                "nearest_fault_km": round(nearest_fault_distance, 1)
+            },
+            "reason": f"Son 7 günde yakın bölgede aktivite yok. En yakın fay hattı: {nearest_fault_distance:.1f} km"
+        }
     
-    # Fay hattı yakınlığı
-    if nearest_fault_distance < 50:
+    # İstatistikler
+    magnitudes = [eq['mag'] for eq in recent_earthquakes]
+    distances = [eq['distance'] for eq in recent_earthquakes]
+    depths = [eq['depth'] for eq in recent_earthquakes]
+    
+    avg_magnitude = np.mean(magnitudes)
+    max_magnitude = max(magnitudes)
+    count = len(recent_earthquakes)
+    avg_distance = np.mean(distances)
+    min_distance = min(distances)
+    avg_depth = np.mean(depths)
+    
+    # İyileştirilmiş Risk Skoru Hesaplama (0-10 arası, daha dengeli)
+    risk_score = 0.0
+    
+    # 1. Büyüklük faktörü (0-3.5 puan) - Daha dengeli
+    if max_magnitude >= 6.0:
+        risk_score += 3.5
+    elif max_magnitude >= 5.0:
+        risk_score += 2.5
+    elif max_magnitude >= 4.5:
+        risk_score += 1.8
+    elif max_magnitude >= 4.0:
+        risk_score += 1.2
+    else:
+        risk_score += max_magnitude * 0.3
+    
+    # 2. Aktivite yoğunluğu (0-2.5 puan) - Logaritmik artış
+    if count >= 50:
+        risk_score += 2.5
+    elif count >= 20:
         risk_score += 2.0
-    elif nearest_fault_distance < 100:
+    elif count >= 10:
+        risk_score += 1.5
+    elif count >= 5:
         risk_score += 1.0
+    else:
+        risk_score += count * 0.15
     
-    risk_score = min(10.0, risk_score)
+    # 3. Mesafe faktörü (0-2.0 puan) - Yakın depremler çok riskli
+    if min_distance < 10:
+        risk_score += 2.0
+    elif min_distance < 25:
+        risk_score += 1.5
+    elif min_distance < 50:
+        risk_score += 1.0
+    elif min_distance < 100:
+        risk_score += 0.5
+    elif avg_distance < 150:
+        risk_score += 0.3
     
-    # Risk seviyesi belirleme
-    if risk_score >= 7.0:
+    # 4. Fay hattı yakınlığı (0-1.5 puan)
+    if nearest_fault_distance < 10:
+        risk_score += 1.5
+    elif nearest_fault_distance < 25:
+        risk_score += 1.2
+    elif nearest_fault_distance < 50:
+        risk_score += 0.8
+    elif nearest_fault_distance < 100:
+        risk_score += 0.4
+    
+    # 5. Derinlik faktörü (0-0.5 puan) - Sığ depremler daha riskli
+    if avg_depth < 5:
+        risk_score += 0.5
+    elif avg_depth < 10:
+        risk_score += 0.3
+    
+    # 6. Büyük deprem sayısı (0-0.5 puan)
+    large_quakes = sum(1 for m in magnitudes if m >= 4.5)
+    if large_quakes >= 3:
+        risk_score += 0.5
+    elif large_quakes >= 1:
+        risk_score += 0.3
+    
+    # Skoru 0-10 arasına sınırla
+    risk_score = min(10.0, max(0.0, risk_score))
+    
+    # Risk seviyesi belirleme (daha hassas eşikler)
+    if risk_score >= 7.5:
         level = "Çok Yüksek"
-    elif risk_score >= 5.0:
+    elif risk_score >= 6.0:
         level = "Yüksek"
-    elif risk_score >= 3.0:
+    elif risk_score >= 4.0:
+        level = "Orta-Yüksek"
+    elif risk_score >= 2.5:
         level = "Orta"
+    elif risk_score >= 1.5:
+        level = "Düşük-Orta"
     else:
         level = "Düşük"
     
@@ -1263,11 +1367,14 @@ def predict_earthquake_risk(earthquakes, target_lat, target_lon):
         "risk_score": round(risk_score, 1),
         "factors": {
             "max_magnitude": round(max_magnitude, 1),
+            "avg_magnitude": round(avg_magnitude, 1),
             "recent_count": count,
+            "min_distance": round(min_distance, 1),
             "avg_distance": round(avg_distance, 1),
-            "nearest_fault_km": round(nearest_fault_distance, 1)
+            "nearest_fault_km": round(nearest_fault_distance, 1),
+            "avg_depth": round(avg_depth, 1)
         },
-        "reason": f"Son 24 saatte {count} deprem, en büyük M{max_magnitude:.1f}"
+        "reason": f"Son 7 günde {count} deprem, en büyük M{max_magnitude:.1f}, en yakın {min_distance:.1f} km"
     }
 
 
@@ -1854,15 +1961,83 @@ def set_alert_settings():
         print(f"[ERROR] Bildirim ayarları hatası: {e}")
         return jsonify({"status": "error", "message": f"Sunucu hatası: {str(e)}"}), 500
 
+@app.route('/api/istanbul-alert', methods=['POST'])
+def set_istanbul_alert():
+    """ İstanbul için özel erken uyarı bildirimi kaydeder. Depremden ÖNCE mesaj gönderir. """
+    try:
+        global user_alerts
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "Geçersiz istek. JSON verisi bekleniyor."}), 400
+        
+        number = data.get('number', '').strip()
+        
+        if not number:
+            return jsonify({"status": "error", "message": "Telefon numarası gereklidir."}), 400
+        
+        if not number.startswith('+'):
+            return jsonify({"status": "error", "message": "Telefon numarası ülke kodu ile (+XX) başlamalıdır. Örnek: +90532xxxxxxx"}), 400
+        
+        # İstanbul koordinatları (varsayılan olarak İstanbul merkez)
+        istanbul_lat = ISTANBUL_COORDS['lat']
+        istanbul_lon = ISTANBUL_COORDS['lon']
+        
+        # Kullanıcı özel koordinat vermişse onu kullan
+        if data.get('lat') and data.get('lon'):
+            try:
+                lat = float(data.get('lat'))
+                lon = float(data.get('lon'))
+                if (-90 <= lat <= 90) and (-180 <= lon <= 180):
+                    istanbul_lat = lat
+                    istanbul_lon = lon
+            except (ValueError, TypeError):
+                pass  # Varsayılan İstanbul koordinatlarını kullan
+        
+        # İstanbul için özel işaretle
+        user_alerts[number] = {
+            'lat': istanbul_lat,
+            'lon': istanbul_lon,
+            'registered_at': datetime.now().isoformat(),
+            'istanbul_alert': True  # İstanbul erken uyarı için özel işaret
+        }
+        save_user_alerts(user_alerts)
+        
+        print(f"İstanbul Erken Uyarı Bildirimi Kaydedildi: {number} @ ({istanbul_lat:.2f}, {istanbul_lon:.2f})")
+        
+        # Onay mesajı
+        confirmation_body = f"🏛️ İSTANBUL ERKEN UYARI SİSTEMİ 🏛️\n"
+        confirmation_body += f"✅ İstanbul için erken uyarı bildirimleri başarıyla etkinleştirildi!\n\n"
+        confirmation_body += f"📍 Kayıtlı Konum: {istanbul_lat:.4f}, {istanbul_lon:.4f}\n\n"
+        confirmation_body += f"🔔 SİSTEM NASIL ÇALIŞIR?\n"
+        confirmation_body += f"• Yapay zeka destekli erken uyarı sistemi İstanbul çevresindeki deprem aktivitesini sürekli izler\n"
+        confirmation_body += f"• Anormal aktivite tespit edildiğinde DEPREM ÖNCESİ size WhatsApp ile bildirim gönderilir\n"
+        confirmation_body += f"• Uyarı seviyeleri: KRİTİK (0-24 saat), YÜKSEK (24-72 saat), ORTA (1 hafta)\n"
+        confirmation_body += f"• Bildirimler otomatik olarak gönderilir, ek işlem yapmanıza gerek yok\n\n"
+        confirmation_body += f"⚠️ Lütfen hazırlıklı olun ve acil durum planınızı gözden geçirin!"
+        
+        try:
+            send_whatsapp_notification(number, confirmation_body)
+        except Exception as e:
+            print(f"[WARNING] WhatsApp bildirimi gönderilemedi: {e}")
+        
+        return jsonify({
+            "status": "success",
+            "message": "İstanbul erken uyarı bildirimleri başarıyla kaydedildi. Deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilecektir."
+        })
+    except Exception as e:
+        print(f"[ERROR] İstanbul bildirim ayarları hatası: {e}")
+        return jsonify({"status": "error", "message": f"Sunucu hatası: {str(e)}"}), 500
+
 
 # --- ARKA PLAN BİLDİRİM KONTROLÜ ---
 
 def check_for_big_earthquakes():
     """ Arka planda sürekli çalışır, M >= 5.0 deprem olup olmadığını kontrol eder. """
     global last_big_earthquake, user_alerts
+    last_istanbul_alert_time = {}  # Her kullanıcı için son bildirim zamanı (spam önleme)
     
     while True:
-        time.sleep(60) 
+        time.sleep(30)  # 30 saniyede bir kontrol et (daha hızlı tepki)
 
         try:
             earthquakes = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=1, timeout=30)
@@ -1872,21 +2047,62 @@ def check_for_big_earthquakes():
             continue
         
         # İstanbul erken uyarı kontrolü
-        istanbul_warning = istanbul_early_warning_system(earthquakes)
-        if istanbul_warning['alert_level'] in ['KRİTİK', 'YÜKSEK']:
-            print(f"🚨 İSTANBUL ERKEN UYARI: {istanbul_warning['alert_level']} - {istanbul_warning['message']}")
-            # İstanbul için kayıtlı kullanıcılara bildirim gönder
-            for number, coords in user_alerts.items():
-                city, _ = find_nearest_city(coords['lat'], coords['lon'])
-                if city == 'İstanbul':
-                    body = f"🚨 İSTANBUL ERKEN UYARI SİSTEMİ 🚨\n"
-                    body += f"Uyarı Seviyesi: {istanbul_warning['alert_level']}\n"
-                    body += f"Uyarı Skoru: {istanbul_warning['alert_score']}/1.0\n"
-                    body += f"Mesaj: {istanbul_warning['message']}\n"
-                    if istanbul_warning.get('time_to_event'):
-                        body += f"Tahmini Süre: {istanbul_warning['time_to_event']}\n"
-                    body += f"\n⚠️ Lütfen hazırlıklı olun ve acil durum planınızı gözden geçirin!"
-                    send_whatsapp_notification(number, body)
+        try:
+            istanbul_warning = istanbul_early_warning_system(earthquakes)
+            alert_level = istanbul_warning.get('alert_level', 'Normal')
+            
+            # KRİTİK, YÜKSEK veya ORTA seviyede bildirim gönder
+            if alert_level in ['KRİTİK', 'YÜKSEK', 'ORTA']:
+                print(f"🚨 İSTANBUL ERKEN UYARI: {alert_level} - {istanbul_warning.get('message', '')}")
+                
+                # Kullanıcı verilerini tekrar yükle (güncel olması için)
+                user_alerts = load_user_alerts()
+                
+                # İstanbul için kayıtlı kullanıcılara bildirim gönder
+                for number, coords in user_alerts.items():
+                    # İstanbul erken uyarı için kayıtlı mı kontrol et
+                    is_istanbul_alert = coords.get('istanbul_alert', False)
+                    city, _ = find_nearest_city(coords['lat'], coords['lon'])
+                    
+                    # İstanbul'da veya İstanbul erken uyarı için kayıtlıysa
+                    if city == 'İstanbul' or is_istanbul_alert:
+                        # Spam önleme: Aynı seviye için 1 saat içinde tekrar bildirim gönderme
+                        alert_key = f"{number}_{alert_level}"
+                        current_time = time.time()
+                        
+                        if alert_key in last_istanbul_alert_time:
+                            time_since_last = current_time - last_istanbul_alert_time[alert_key]
+                            if time_since_last < 3600:  # 1 saat
+                                continue  # Bu seviye için son 1 saatte bildirim gönderildi, atla
+                        
+                        # Bildirim gönder
+                        body = f"🚨 İSTANBUL ERKEN UYARI SİSTEMİ 🚨\n\n"
+                        body += f"⚠️ DEPREM ÖNCESİ UYARI ⚠️\n\n"
+                        body += f"Uyarı Seviyesi: {alert_level}\n"
+                        body += f"Uyarı Skoru: {istanbul_warning.get('alert_score', 0):.2f}/1.0\n"
+                        body += f"Mesaj: {istanbul_warning.get('message', 'Anormal aktivite tespit edildi')}\n"
+                        
+                        if istanbul_warning.get('time_to_event'):
+                            body += f"Tahmini Süre: {istanbul_warning['time_to_event']}\n"
+                        
+                        body += f"\n📊 DETAYLAR:\n"
+                        body += f"• Son deprem sayısı: {istanbul_warning.get('recent_earthquakes', 0)}\n"
+                        body += f"• Anomali tespit edildi: {'Evet' if istanbul_warning.get('anomaly_detected') else 'Hayır'}\n"
+                        
+                        body += f"\n⚠️ LÜTFEN HAZIRLIKLI OLUN:\n"
+                        body += f"• Acil durum çantanızı hazırlayın\n"
+                        body += f"• Güvenli yerleri belirleyin\n"
+                        body += f"• Aile acil durum planınızı gözden geçirin\n"
+                        body += f"• Sakin kalın ve hazırlıklı olun"
+                        
+                        try:
+                            send_whatsapp_notification(number, body)
+                            last_istanbul_alert_time[alert_key] = current_time
+                            print(f"✅ İstanbul erken uyarı bildirimi gönderildi: {number}")
+                        except Exception as e:
+                            print(f"[ERROR] İstanbul bildirimi gönderilemedi ({number}): {e}")
+        except Exception as e:
+            print(f"[ERROR] İstanbul erken uyarı kontrolü hatası: {e}")
 
         for eq in earthquakes:
             mag = eq.get('mag', 0)

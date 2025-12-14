@@ -362,12 +362,12 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
     width: 50px;
     height: 50px;
     border-radius: 50%;
-    background: #6B0000 !important;
+    background: #FF1744 !important;
     color: white;
     border: none;
     font-size: 20px;
     cursor: pointer;
-    box-shadow: 0 3px 10px rgba(107, 0, 0, 0.4);
+    box-shadow: 0 3px 10px rgba(255, 23, 68, 0.4);
     transition: all 0.3s;
     display: flex;
     align-items: center;
@@ -376,7 +376,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-toggle:hover {
-    background: #8B0000 !important;
+    background: #FF4569 !important;
     transform: scale(1.05);
 }
 
@@ -396,7 +396,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-header {
-    background: #6B0000 !important;
+    background: #FF1744 !important;
     color: white;
     padding: 12px 18px;
     display: flex;
@@ -436,7 +436,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .message.user .message-bubble {
-    background: #6B0000 !important;
+    background: #FF1744 !important;
     color: white;
 }
 
@@ -462,7 +462,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: #6B0000 !important;
+    background: #FF1744 !important;
     color: white;
     border: none;
     cursor: pointer;
@@ -474,7 +474,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-send:hover {
-    background: #8B0000 !important;
+    background: #FF4569 !important;
 }
 
 /* Responsive */

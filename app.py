@@ -2085,43 +2085,61 @@ def chatbot():
         
         message_lower = message.lower()
         
-        # Gelişmiş rule-based AI - Çoklu anahtar kelime desteği
+        # Gelişmiş rule-based AI - Çoklu anahtar kelime desteği ve gerçek zamanlı veri
         responses = {
             # Selamlama
-            ('merhaba', 'selam', 'hey', 'hi', 'hello'): 'Merhaba! 👋 Ben deprem asistanınız. Deprem güvenliği, risk analizi ve erken uyarı sistemi hakkında size yardımcı olabilirim. Nasıl yardımcı olabilirim?',
+            ('merhaba', 'selam', 'hey', 'hi', 'hello', 'günaydın', 'iyi günler', 'iyi akşamlar'): 'Merhaba! 👋 Ben deprem asistanınız. Deprem güvenliği, risk analizi ve erken uyarı sistemi hakkında size yardımcı olabilirim. Nasıl yardımcı olabilirim?',
             
             # Risk analizi
-            ('risk', 'risk analizi', 'risk tahmini', 'tehlike', 'güvenli mi'): '🔍 Risk analizi için:\n• Haritadaki "Risk Analizi" bölümünü kullanabilirsiniz\n• "Konumum İçin Risk Tahmini Yap" butonu ile kişisel analiz yapabilirsiniz\n• "İl Bazında Risk Analizi" ile tüm illerin risk durumunu görebilirsiniz\n\nSistem son depremlere ve aktif fay hatlarına göre analiz yapar.',
+            ('risk', 'risk analizi', 'risk tahmini', 'tehlike', 'güvenli mi', 'riskli mi', 'risk nedir', 'risk skoru'): '🔍 Risk analizi için:\n• Haritadaki "Risk Analizi" bölümünü kullanabilirsiniz\n• "Konumum İçin Risk Tahmini Yap" butonu ile kişisel analiz yapabilirsiniz\n• "İl Bazında Risk Analizi" ile tüm illerin risk durumunu görebilirsiniz\n\nSistem son depremlere ve aktif fay hatlarına göre analiz yapar.',
             
             # Deprem bilgileri
-            ('deprem', 'depremler', 'son deprem', 'deprem listesi', 'deprem haritası'): '📊 Deprem bilgileri için:\n• "Son 1 Gün Depremler & Aktif Fay Hatları" haritasından son depremleri görebilirsiniz\n• Haritada deprem büyüklüğü, konum ve tarih bilgileri görüntülenir\n• İstanbul için özel erken uyarı sistemi mevcuttur',
+            ('deprem', 'depremler', 'son deprem', 'deprem listesi', 'deprem haritası', 'bugün deprem', 'son 24 saat', 'yakın zamanda'): '📊 Deprem bilgileri için:\n• "Son 1 Gün Depremler & Aktif Fay Hatları" haritasından son depremleri görebilirsiniz\n• Haritada deprem büyüklüğü, konum ve tarih bilgileri görüntülenir\n• İstanbul için özel erken uyarı sistemi mevcuttur',
             
             # Güvenlik
-            ('güvenlik', 'güvenli', 'ne yapmalı', 'nasıl korunur', 'önlem', 'hazırlık', 'deprem sırasında', 'deprem öncesi', 'deprem sonrası'): '🛡️ DEPREM GÜVENLİĞİ:\n\n📌 DEPREM ÖNCESİ:\n• Acil durum çantası hazırlayın\n• Aile acil durum planı yapın\n• Güvenli yerleri belirleyin\n• Mobilyaları sabitleyin\n\n📌 DEPREM SIRASINDA:\n• ÇÖK: Yere çökün\n• KAPAN: Başınızı ve boynunuzu koruyun\n• TUTUN: Sağlam bir yere tutunun\n• Pencerelerden, dolaplardan uzak durun\n\n📌 DEPREM SONRASI:\n• Gaz, elektrik ve su vanalarını kapatın\n• Açık alanlara çıkın\n• Binalara girmeyin\n• Acil durum çantanızı alın',
+            ('güvenlik', 'güvenli', 'ne yapmalı', 'nasıl korunur', 'önlem', 'hazırlık', 'deprem sırasında', 'deprem öncesi', 'deprem sonrası', 'çök kapan tutun', 'acil durum', 'hazırlık çantası', 'acil çanta'): '🛡️ DEPREM GÜVENLİĞİ:\n\n📌 DEPREM ÖNCESİ:\n• Acil durum çantası hazırlayın (su, yiyecek, ilaç, fener, pil, radyo)\n• Aile acil durum planı yapın\n• Güvenli yerleri belirleyin (masa altı, kolon yanı)\n• Mobilyaları sabitleyin\n• Gaz ve elektrik vanalarının yerini öğrenin\n\n📌 DEPREM SIRASINDA:\n• ÇÖK: Yere çökün\n• KAPAN: Başınızı ve boynunuzu koruyun\n• TUTUN: Sağlam bir yere tutunun\n• Pencerelerden, dolaplardan, asılı eşyalardan uzak durun\n• Asansör kullanmayın\n• Merdivenlerden uzak durun\n\n📌 DEPREM SONRASI:\n• Gaz, elektrik ve su vanalarını kapatın\n• Açık alanlara çıkın\n• Binalara girmeyin\n• Acil durum çantanızı alın\n• Telefon hatlarını gereksiz kullanmayın',
             
             # İstanbul
-            ('istanbul', 'istanbul uyarı', 'istanbul erken uyarı', 'istanbul risk'): '🏛️ İSTANBUL ERKEN UYARI SİSTEMİ:\n• İstanbul için özel gelişmiş yapay zeka destekli erken uyarı sistemi\n• "İstanbul Erken Uyarı Durumunu Kontrol Et" butonundan kontrol edebilirsiniz\n• Sistem deprem öncesi sinyalleri tespit ederek önceden uyarı verir\n• Uyarı seviyeleri: KRİTİK, YÜKSEK, ORTA, DÜŞÜK',
+            ('istanbul', 'istanbul uyarı', 'istanbul erken uyarı', 'istanbul risk', 'istanbul güvenli mi', 'istanbul deprem'): '🏛️ İSTANBUL ERKEN UYARI SİSTEMİ:\n• İstanbul için özel gelişmiş yapay zeka destekli erken uyarı sistemi\n• "İstanbul Erken Uyarı Durumunu Kontrol Et" butonundan kontrol edebilirsiniz\n• Sistem deprem öncesi sinyalleri tespit ederek önceden uyarı verir\n• Uyarı seviyeleri: KRİTİK (0-24 saat), YÜKSEK (24-72 saat), ORTA (1 hafta), DÜŞÜK\n• WhatsApp bildirimleri ile anında uyarı alabilirsiniz',
             
             # Fay hatları
-            ('fay', 'fay hattı', 'fay hatları', 'kaf', 'daf', 'aktif fay'): '🗺️ TÜRKİYE AKTİF FAY HATLARI:\n• Kuzey Anadolu Fay Hattı (KAF)\n• Doğu Anadolu Fay Hattı (DAF)\n• Ege Graben Sistemi\n• Batı Anadolu Fay Sistemi\n\nHaritada "Son 1 Gün Depremler & Aktif Fay Hatları" bölümünden tüm fay hatlarını görebilirsiniz.',
+            ('fay', 'fay hattı', 'fay hatları', 'kaf', 'daf', 'aktif fay', 'kuzey anadolu', 'doğu anadolu', 'ege graben'): '🗺️ TÜRKİYE AKTİF FAY HATLARI:\n• Kuzey Anadolu Fay Hattı (KAF) - En aktif fay hattı\n• Doğu Anadolu Fay Hattı (DAF)\n• Ege Graben Sistemi\n• Batı Anadolu Fay Sistemi\n\nHaritada "Son 1 Gün Depremler & Aktif Fay Hatları" bölümünden tüm fay hatlarını görebilirsiniz. Fay hatlarına yakın bölgeler daha yüksek risk taşır.',
             
             # Hasar tahmini
-            ('hasar', 'hasar tahmini', 'hasar analizi', 'yıkım', 'zarar'): '🏙️ HASAR TAHMİNİ:\n• "İl Bazında Risk Analizi" bölümünden tüm illerin risk durumunu görebilirsiniz\n• Sistem son depremlere ve fay hatlarına yakınlığa göre analiz yapar\n• Her il için risk skoru, seviye ve detaylı faktörler gösterilir',
+            ('hasar', 'hasar tahmini', 'hasar analizi', 'yıkım', 'zarar', 'bina hasarı', 'yapı hasarı'): '🏙️ HASAR TAHMİNİ:\n• "İl Bazında Risk Analizi" bölümünden tüm illerin risk durumunu görebilirsiniz\n• Sistem son depremlere ve fay hatlarına yakınlığa göre analiz yapar\n• Her il için risk skoru, seviye ve detaylı faktörler gösterilir\n• Bina yapısı analizi (güçlendirilmiş/normal/zayıf) dahil\n• Hasar skoru 0-100 arası hesaplanır',
             
             # Bildirim
-            ('bildirim', 'uyarı', 'whatsapp', 'mesaj', 'sms', 'alarm'): '📱 WHATSAPP BİLDİRİMLERİ:\n• "Acil Durum WhatsApp Bildirim Ayarları" bölümünden ayarlayabilirsiniz\n• Konumunuzu belirleyin\n• WhatsApp numaranızı girin (ülke kodu ile: +90...)\n• M ≥ 5.0 depremlerde 150 km içindeyse otomatik bildirim alırsınız',
+            ('bildirim', 'uyarı', 'whatsapp', 'mesaj', 'sms', 'alarm', 'nasıl bildirim alırım', 'bildirim ayarla'): '📱 WHATSAPP BİLDİRİMLERİ:\n• "Acil Durum WhatsApp Bildirim Ayarları" bölümünden ayarlayabilirsiniz\n• Konumunuzu belirleyin\n• WhatsApp numaranızı girin (ülke kodu ile: +90...)\n• M ≥ 5.0 depremlerde 150 km içindeyse otomatik bildirim alırsınız\n• İstanbul için özel erken uyarı bildirimleri mevcuttur\n• Twilio WhatsApp Sandbox\'a katılmanız gerekiyor (ücretsiz)',
             
             # Yardım
-            ('yardım', 'help', 'nasıl kullanılır', 'kullanım', 'ne yapabilirsin'): '💡 NASIL KULLANILIR:\n\n1️⃣ Risk Analizi: Konumunuzu belirleyip risk tahmini yapın\n2️⃣ Deprem Haritası: Son depremleri ve fay hatlarını görüntüleyin\n3️⃣ İl Bazında Analiz: Tüm illerin risk durumunu kontrol edin\n4️⃣ İstanbul Uyarı: İstanbul için erken uyarı durumunu kontrol edin\n5️⃣ Bildirimler: WhatsApp bildirimlerini aktifleştirin\n\nBaşka bir sorunuz varsa sorabilirsiniz!',
+            ('yardım', 'help', 'nasıl kullanılır', 'kullanım', 'ne yapabilirsin', 'komutlar', 'özellikler', 'neler yapabilir'): '💡 NASIL KULLANILIR:\n\n1️⃣ Risk Analizi: Konumunuzu belirleyip risk tahmini yapın\n2️⃣ Deprem Haritası: Son depremleri ve fay hatlarını görüntüleyin\n3️⃣ İl Bazında Analiz: Tüm illerin risk durumunu kontrol edin\n4️⃣ İstanbul Uyarı: İstanbul için erken uyarı durumunu kontrol edin\n5️⃣ Bildirimler: WhatsApp bildirimlerini aktifleştirin\n6️⃣ Türkiye Erken Uyarı: Tüm Türkiye için M≥5.0 deprem uyarıları\n\nBaşka bir sorunuz varsa sorabilirsiniz!',
             
             # Sistem bilgisi
-            ('nasıl çalışır', 'sistem', 'yapay zeka', 'ml', 'makine öğrenmesi', 'algoritma'): '🤖 SİSTEM NASIL ÇALIŞIR:\n• Kandilli Rasathanesi verilerini kullanır\n• Gerçek zamanlı deprem analizi yapar\n• Makine öğrenmesi modelleri (Random Forest, XGBoost, LightGBM) ile risk tahmini\n• Anomali tespiti ile olağandışı aktivite tespit eder\n• Aktif fay hatlarına yakınlık analizi\n• Ensemble model ile yüksek doğruluk',
+            ('nasıl çalışır', 'sistem', 'yapay zeka', 'ml', 'makine öğrenmesi', 'algoritma', 'model', 'ai', 'yz'): '🤖 SİSTEM NASIL ÇALIŞIR:\n• Kandilli Rasathanesi verilerini kullanır\n• Gerçek zamanlı deprem analizi yapar\n• Makine öğrenmesi modelleri (Random Forest, XGBoost, LightGBM) ile risk tahmini\n• Ensemble learning ile %82 doğruluk\n• Anomali tespiti ile olağandışı aktivite tespit eder\n• Aktif fay hatlarına yakınlık analizi\n• 17 farklı özellik (feature) ile analiz',
             
             # Teşekkür
-            ('teşekkür', 'teşekkürler', 'sağol', 'sağolun', 'thanks', 'thank you'): 'Rica ederim! 😊 Başka bir sorunuz varsa çekinmeyin. Deprem güvenliğiniz için her zaman buradayım!',
+            ('teşekkür', 'teşekkürler', 'sağol', 'sağolun', 'thanks', 'thank you', 'eyvallah', 'mükemmel'): 'Rica ederim! 😊 Başka bir sorunuz varsa çekinmeyin. Deprem güvenliğiniz için her zaman buradayım!',
             
             # Genel bilgi
-            ('kandilli', 'veri', 'kaynak', 'nereden'): '📡 VERİ KAYNAĞI:\n• Kandilli Rasathanesi ve Deprem Araştırma Enstitüsü\n• Gerçek zamanlı deprem verileri\n• API: api.orhanaydogdu.com.tr\n• Veriler sürekli güncellenir',
+            ('kandilli', 'veri', 'kaynak', 'nereden', 'veri kaynağı', 'api'): '📡 VERİ KAYNAĞI:\n• Kandilli Rasathanesi ve Deprem Araştırma Enstitüsü\n• Gerçek zamanlı deprem verileri\n• API: api.orhanaydogdu.com.tr\n• Veriler sürekli güncellenir\n• Son 1 gün içindeki tüm depremler analiz edilir',
+            
+            # Büyüklük soruları
+            ('büyüklük', 'magnitude', 'richter', 'm', 'kaç şiddet', 'şiddet', 'ölçek'): '📏 DEPREM BÜYÜKLÜĞÜ:\n• Richter ölçeği kullanılır (M2.0 - M9.0+)\n• M2.0-3.9: Çok küçük (hissedilmez)\n• M4.0-4.9: Küçük (hafif sallanma)\n• M5.0-5.9: Orta (hasar yapabilir)\n• M6.0-6.9: Büyük (ciddi hasar)\n• M7.0+: Çok büyük (yıkıcı)\n\nSistem M≥5.0 depremler için özel uyarı verir.',
+            
+            # Derinlik soruları
+            ('derinlik', 'derin', 'sığ', 'yer kabuğu', 'odak derinliği'): '⛰️ DEPREM DERİNLİĞİ:\n• Sığ depremler (0-70 km): Daha fazla hasar verir\n• Orta derinlik (70-300 km): Orta hasar\n• Derin depremler (300+ km): Daha az hasar\n\nSistem derinlik analizi yaparak hasar tahmini yapar.',
+            
+            # Erken uyarı
+            ('erken uyarı', 'uyarı sistemi', 'önceden haber', 'tahmin', 'önceden bilmek'): '🚨 ERKEN UYARI SİSTEMİ:\n• İstanbul için özel gelişmiş sistem\n• Deprem öncesi sinyalleri tespit eder\n• Anomali tespiti ile olağandışı aktivite uyarısı\n• Uyarı seviyeleri: KRİTİK, YÜKSEK, ORTA\n• WhatsApp ile anında bildirim\n• Makine öğrenmesi ile yüksek doğruluk',
+            
+            # İl soruları
+            ('ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il'): '🏙️ İL BAZINDA ANALİZ:\n• "İl Bazında Risk Analizi Yap" butonundan tüm illerin risk durumunu görebilirsiniz\n• Her il için:\n  - Risk skoru (0-100)\n  - Risk seviyesi\n  - Bina hasar analizi\n  - Fay hattı mesafesi\n  - Son deprem etkileri\n\nTürkiye\'nin 81 ili analiz edilir.',
+            
+            # Anomali
+            ('anomali', 'olağandışı', 'normal değil', 'garip', 'anormal'): '🔍 ANOMALİ TESPİTİ:\n• Isolation Forest modeli ile anomali tespiti\n• Olağandışı deprem aktivitesi tespit edilir\n• Yüksek aktivite, büyük depremler, yakın mesafe kontrol edilir\n• Anomali tespit edildiğinde erken uyarı verilir\n• İstanbul erken uyarı sisteminde kullanılır',
+            
+            # Harita
+            ('harita', 'görselleştirme', 'görsel', 'map', 'haritada'): '🗺️ HARİTA ÖZELLİKLERİ:\n• İki harita mevcut:\n  1. YZ Risk Analizi - Risk bölgeleri\n  2. Son 1 Gün Depremler & Aktif Fay Hatları\n• Depremler büyüklüğe göre renklendirilir\n• Fay hatları kırmızı kesikli çizgi ile gösterilir\n• Marker\'lara tıklayarak detaylı bilgi alabilirsiniz',
         }
         
         # Çoklu anahtar kelime eşleştirme
@@ -2139,11 +2157,23 @@ def chatbot():
         
         # Eğer eşleşme yoksa, benzer kelimeleri kontrol et
         if not response_text:
-            # Kısmi eşleşme
+            # Kısmi eşleşme ve genişletilmiş pattern matching
             similar_patterns = {
-                'risk': responses[('risk', 'risk analizi', 'risk tahmini', 'tehlike', 'güvenli mi')],
-                'deprem': responses[('deprem', 'depremler', 'son deprem', 'deprem listesi', 'deprem haritası')],
-                'güven': responses[('güvenlik', 'güvenli', 'ne yapmalı', 'nasıl korunur', 'önlem', 'hazırlık', 'deprem sırasında', 'deprem öncesi', 'deprem sonrası')],
+                'risk': responses[('risk', 'risk analizi', 'risk tahmini', 'tehlike', 'güvenli mi', 'riskli mi', 'risk nedir', 'risk skoru')],
+                'deprem': responses[('deprem', 'depremler', 'son deprem', 'deprem listesi', 'deprem haritası', 'bugün deprem', 'son 24 saat', 'yakın zamanda')],
+                'güven': responses[('güvenlik', 'güvenli', 'ne yapmalı', 'nasıl korunur', 'önlem', 'hazırlık', 'deprem sırasında', 'deprem öncesi', 'deprem sonrası', 'çök kapan tutun', 'acil durum', 'hazırlık çantası', 'acil çanta')],
+                'istanbul': responses[('istanbul', 'istanbul uyarı', 'istanbul erken uyarı', 'istanbul risk', 'istanbul güvenli mi', 'istanbul deprem')],
+                'fay': responses[('fay', 'fay hattı', 'fay hatları', 'kaf', 'daf', 'aktif fay', 'kuzey anadolu', 'doğu anadolu', 'ege graben')],
+                'bildirim': responses[('bildirim', 'uyarı', 'whatsapp', 'mesaj', 'sms', 'alarm', 'nasıl bildirim alırım', 'bildirim ayarla')],
+                'hasar': responses[('hasar', 'hasar tahmini', 'hasar analizi', 'yıkım', 'zarar', 'bina hasarı', 'yapı hasarı')],
+                'yardım': responses[('yardım', 'help', 'nasıl kullanılır', 'kullanım', 'ne yapabilirsin', 'komutlar', 'özellikler', 'neler yapabilir')],
+                'sistem': responses[('nasıl çalışır', 'sistem', 'yapay zeka', 'ml', 'makine öğrenmesi', 'algoritma', 'model', 'ai', 'yz')],
+                'büyüklük': responses[('büyüklük', 'magnitude', 'richter', 'm', 'kaç şiddet', 'şiddet', 'ölçek')],
+                'derinlik': responses[('derinlik', 'derin', 'sığ', 'yer kabuğu', 'odak derinliği')],
+                'uyarı': responses[('erken uyarı', 'uyarı sistemi', 'önceden haber', 'tahmin', 'önceden bilmek')],
+                'il': responses[('ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il')],
+                'anomali': responses[('anomali', 'olağandışı', 'normal değil', 'garip', 'anormal')],
+                'harita': responses[('harita', 'görselleştirme', 'görsel', 'map', 'haritada')],
             }
             
             for pattern, response in similar_patterns.items():
@@ -2151,9 +2181,16 @@ def chatbot():
                     response_text = response
                     break
         
-        # Son çare: Genel yanıt
+        # Soru tiplerine göre akıllı yanıt
         if not response_text:
-            response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum. Size şunlar hakkında yardımcı olabilirim:\n\n• 🔍 Risk analizi ve tahmini\n• 📊 Deprem bilgileri ve haritalar\n• 🛡️ Güvenlik önlemleri\n• 🏛️ İstanbul erken uyarı sistemi\n• 📱 WhatsApp bildirimleri\n• 🗺️ Fay hatları\n\nLütfen bu konulardan birini sorun!'
+            # Soru kelimeleri kontrolü
+            question_words = ['nedir', 'nasıl', 'ne', 'nerede', 'kim', 'hangi', 'kaç', 'neden', 'niçin', 'ne zaman']
+            has_question = any(qw in message_lower for qw in question_words)
+            
+            if has_question:
+                response_text = '🤔 Bu sorunuzu tam olarak anlayamadım. Şu konularda size yardımcı olabilirim:\n\n• 🔍 Risk analizi ve tahmini nasıl yapılır?\n• 📊 Son depremler nerede görüntülenir?\n• 🛡️ Deprem sırasında ne yapmalıyım?\n• 🏛️ İstanbul erken uyarı sistemi nasıl çalışır?\n• 📱 WhatsApp bildirimleri nasıl ayarlanır?\n• 🗺️ Fay hatları nerede?\n• 🤖 Sistem nasıl çalışır?\n\nLütfen daha spesifik bir soru sorun!'
+            else:
+                response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum. Size şunlar hakkında yardımcı olabilirim:\n\n• 🔍 Risk analizi ve tahmini\n• 📊 Deprem bilgileri ve haritalar\n• 🛡️ Güvenlik önlemleri\n• 🏛️ İstanbul erken uyarı sistemi\n• 📱 WhatsApp bildirimleri\n• 🗺️ Fay hatları\n• 🤖 Makine öğrenmesi ve sistem\n• 📏 Deprem büyüklüğü ve derinlik\n• 🏙️ İl bazında analiz\n\nLütfen bu konulardan birini sorun!'
         
         return jsonify({"response": response_text})
         

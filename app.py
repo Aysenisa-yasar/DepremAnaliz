@@ -2555,10 +2555,18 @@ def check_for_big_earthquakes():
                             
                             send_whatsapp_notification(number, body)
 
-# Arka plan iş parçacığını başlat
+# Arka plan iş parçacıklarını başlat
+
+# 1. Büyük deprem kontrolü (30 saniyede bir)
 alert_thread = Thread(target=check_for_big_earthquakes)
 alert_thread.daemon = True 
 alert_thread.start()
+
+# 2. Sürekli veri toplama (30 dakikada bir)
+data_collection_thread = Thread(target=collect_training_data_continuously)
+data_collection_thread.daemon = True
+data_collection_thread.start()
+print("[SISTEM] Sürekli veri toplama sistemi başlatıldı (her 30 dakikada bir).")
 
 
 if __name__ == '__main__':

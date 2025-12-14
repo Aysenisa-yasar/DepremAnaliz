@@ -15,19 +15,4 @@ services:
         sync: false
       - key: TWILIO_WHATSAPP_NUMBER
         sync: false
-      - key: USE_WHATSAPP_WEB
-        value: "true"
-      - key: WHATSAPP_WEB_SERVICE_URL
-        sync: false
-
-  - type: web
-    name: whatsapp-service
-    env: node
-    buildCommand: npm install
-    startCommand: node whatsapp-service.js
-    envVars:
-      - key: NODE_VERSION
-        value: 18.17.0
-      - key: PORT
-        value: 3001
 

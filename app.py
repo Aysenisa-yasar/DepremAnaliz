@@ -109,10 +109,7 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
 
-# --- WHATSAPP WEB SERVİSİ AYARLARI (ÜCRETSİZ) ---
-# WhatsApp Web.js servisi URL'i (varsayılan: localhost:3001 veya ortam değişkeninden)
-WHATSAPP_WEB_SERVICE_URL = os.environ.get("WHATSAPP_WEB_SERVICE_URL", "http://localhost:3001")
-USE_WHATSAPP_WEB = os.environ.get("USE_WHATSAPP_WEB", "true").lower() == "true"  # Varsayılan: WhatsApp Web kullan
+# WhatsApp Web servisi kaldırıldı - sadece Twilio kullanılıyor
 
 # --- KULLANICI AYARLARI (KALICI HAFIZA - JSON DOSYASI) ---
 USER_DATA_FILE = 'user_alerts.json'
@@ -409,69 +406,12 @@ TURKEY_CITIES = {
 
 # --- YARDIMCI FONKSİYONLAR ---
 
-def send_whatsapp_via_web_service(recipient_number, body, location_url=None):
-    """ WhatsApp Web.js servisi üzerinden ücretsiz mesaj gönderir.
-    Returns: (success: bool, error_message: str veya None)
-    """
-    try:
-        # Konum linki varsa mesaja ekle
-        if location_url:
-            body += f"\n\nKonum: {location_url}"
-        
-        response = requests.post(
-            f"{WHATSAPP_WEB_SERVICE_URL}/send",
-            json={
-                "number": recipient_number,
-                "message": body
-            },
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("success"):
-                print(f"[OK] WhatsApp Web bildirimi gonderildi: {recipient_number}")
-                return True, None
-            else:
-                error_msg = data.get("error", "Bilinmeyen hata")
-                print(f"[ERROR] WhatsApp Web hatası: {error_msg}")
-                return False, error_msg
-        elif response.status_code == 503:
-            print("[ERROR] WhatsApp Web servisi bağlı değil. QR kod ile bağlanın.")
-            return False, "WhatsApp bağlı değil. Lütfen QR kod ile bağlanın."
-        else:
-            error_msg = f"HTTP {response.status_code}: {response.text}"
-            print(f"[ERROR] WhatsApp Web hatası: {error_msg}")
-            return False, error_msg
-            
-    except requests.exceptions.ConnectionError:
-        print("[ERROR] WhatsApp Web servisine bağlanılamadı. Servis çalışıyor mu?")
-        return False, "WhatsApp servisine bağlanılamadı"
-    except requests.exceptions.Timeout:
-        print("[ERROR] WhatsApp Web servisi yanıt vermedi (timeout)")
-        return False, "WhatsApp servisi yanıt vermedi"
-    except Exception as e:
-        error_msg = str(e)
-        print(f"[ERROR] WhatsApp Web beklenmeyen hata: {error_msg}")
-        return False, f"Beklenmeyen hata: {error_msg}"
-
 def send_whatsapp_notification(recipient_number, body, location_url=None):
-    """ WhatsApp mesajı gönderir. Önce WhatsApp Web servisini dener, yoksa Twilio'ya fallback yapar.
+    """ WhatsApp mesajı gönderir. Twilio kullanır.
     Returns: (success: bool, error_message: str veya None)
     """
-    # WhatsApp Web servisi kullanılıyorsa önce onu dene
-    if USE_WHATSAPP_WEB:
-        print("[INFO] WhatsApp Web servisi kullanılıyor (ücretsiz)")
-        success, error = send_whatsapp_via_web_service(recipient_number, body, location_url)
-        if success:
-            return True, None
-        # Başarısız olursa Twilio'ya fallback (eğer ayarlanmışsa)
-        print("[INFO] WhatsApp Web başarısız, Twilio'ya fallback deneniyor...")
-    
-    # Twilio fallback (eski sistem)
+    # Twilio kontrolü
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_WHATSAPP_NUMBER:
-        if USE_WHATSAPP_WEB:
-            return False, "WhatsApp Web servisi bağlı değil ve Twilio ayarları yapılmamış"
         print("[WARNING] Twilio ayarlari yapilmamis! Ortam degiskenlerini kontrol edin.")
         print("  Gerekli: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER")
         return False, "Twilio ayarları yapılmamış"
@@ -2319,105 +2259,7 @@ def set_alert_settings():
         print(f"[ERROR] Bildirim ayarları hatası: {e}")
         return jsonify({"status": "error", "message": f"Sunucu hatası: {str(e)}"}), 500
 
-# --- WHATSAPP WEB SERVİSİ ENDPOINT'LERİ (QR KOD) ---
-
-@app.route('/api/whatsapp-status', methods=['GET'])
-def whatsapp_status():
-    """ WhatsApp Web servisi durumunu kontrol eder. """
-    try:
-        response = requests.get(f"{WHATSAPP_WEB_SERVICE_URL}/status", timeout=5)
-        if response.status_code == 200:
-            return jsonify(response.json())
-        else:
-            return jsonify({
-                "ready": False,
-                "authenticated": False,
-                "hasQr": False,
-                "error": "Servis yanıt vermedi"
-            }), 503
-    except requests.exceptions.ConnectionError:
-        return jsonify({
-            "ready": False,
-            "authenticated": False,
-            "hasQr": False,
-            "error": "WhatsApp servisine bağlanılamadı. Servis çalışıyor mu?"
-        }), 503
-    except Exception as e:
-        return jsonify({
-            "ready": False,
-            "authenticated": False,
-            "hasQr": False,
-            "error": str(e)
-        }), 500
-
-@app.route('/api/whatsapp-qr', methods=['GET'])
-def whatsapp_qr():
-    """ WhatsApp QR kodunu alır. """
-    try:
-        response = requests.get(f"{WHATSAPP_WEB_SERVICE_URL}/qr", timeout=5)
-        if response.status_code == 200:
-            return jsonify(response.json())
-        else:
-            return jsonify({
-                "success": False,
-                "message": "QR kod alınamadı"
-            }), 503
-    except requests.exceptions.ConnectionError:
-        return jsonify({
-            "success": False,
-            "message": "WhatsApp servisine bağlanılamadı"
-        }), 503
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": str(e)
-        }), 500
-
-@app.route('/api/whatsapp-restart', methods=['POST'])
-def whatsapp_restart():
-    """ WhatsApp servisini yeniden başlatır. """
-    try:
-        response = requests.post(f"{WHATSAPP_WEB_SERVICE_URL}/restart", timeout=10)
-        if response.status_code == 200:
-            return jsonify(response.json())
-        else:
-            return jsonify({
-                "success": False,
-                "message": "Servis yeniden başlatılamadı"
-            }), 503
-    except requests.exceptions.ConnectionError:
-        return jsonify({
-            "success": False,
-            "message": "WhatsApp servisine bağlanılamadı. Servis çalışıyor mu?"
-        }), 503
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": str(e)
-        }), 500
-
-@app.route('/api/whatsapp-clear-session', methods=['POST'])
-def whatsapp_clear_session():
-    """ WhatsApp session'ını temizler ve servisi yeniden başlatır. """
-    try:
-        response = requests.post(f"{WHATSAPP_WEB_SERVICE_URL}/clear-session", timeout=10)
-        if response.status_code == 200:
-            return jsonify(response.json())
-        else:
-            return jsonify({
-                "success": False,
-                "message": "Session temizlenemedi"
-            }), 503
-    except requests.exceptions.ConnectionError:
-        return jsonify({
-            "success": False,
-            "message": "WhatsApp servisine bağlanılamadı. Servis çalışıyor mu?"
-        }), 503
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": str(e)
-        }), 500
+# WhatsApp Web servisi kaldırıldı - sadece Twilio kullanılıyor
 
 @app.route('/api/istanbul-alert', methods=['POST'])
 def set_istanbul_alert():

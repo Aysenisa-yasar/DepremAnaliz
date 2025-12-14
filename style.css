@@ -216,28 +216,29 @@ h4 {
 
 /* Buttons */
 button, .action-button, .save-button {
-    background: #6B0000 !important;
+    background: var(--color-primary) !important;
+    background: #FF1744 !important;
     color: var(--color-white);
     border: none;
-    padding: 10px 20px;
-    font-size: 0.85em;
+    padding: 15px 30px;
+    font-size: 1em;
     font-weight: 600;
-    border-radius: 8px;
+    border-radius: 10px;
     cursor: pointer;
     transition: all 0.3s;
-    box-shadow: 0 3px 10px rgba(107, 0, 0, 0.4);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    box-shadow: 0 4px 15px rgba(255, 23, 68, 0.4);
+    text-transform: none;
+    letter-spacing: 0.3px;
 }
 
 button:hover, .action-button:hover, .save-button:hover {
-    background: #8B0000 !important;
+    background: #FF4569 !important;
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(107, 0, 0, 0.5);
+    box-shadow: 0 6px 20px rgba(255, 23, 68, 0.6);
 }
 
 button:active, .action-button:active, .save-button:active {
-    background: #5B0000 !important;
+    background: #E0123A !important;
     transform: translateY(0);
 }
 

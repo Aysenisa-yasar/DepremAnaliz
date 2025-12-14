@@ -244,8 +244,8 @@ button:active, .action-button:active, .save-button:active {
 #refreshButton {
     width: 100%;
     margin-bottom: 20px;
-    font-size: 1.1em;
-    padding: 18px;
+    font-size: 0.9em;
+    padding: 12px;
 }
 
 /* Earthquake List */
@@ -358,15 +358,15 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-toggle {
-    width: 60px;
-    height: 60px;
+    width: 50px;
+    height: 50px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    background: #6B0000 !important;
     color: white;
     border: none;
-    font-size: 24px;
+    font-size: 20px;
     cursor: pointer;
-    box-shadow: var(--shadow-strong);
+    box-shadow: 0 3px 10px rgba(107, 0, 0, 0.4);
     transition: all 0.3s;
     display: flex;
     align-items: center;
@@ -375,7 +375,8 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-toggle:hover {
-    transform: scale(1.1);
+    background: #8B0000 !important;
+    transform: scale(1.05);
 }
 
 .chatbot-window {
@@ -394,9 +395,9 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-header {
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    background: #6B0000 !important;
     color: white;
-    padding: 15px 20px;
+    padding: 12px 18px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -434,7 +435,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .message.user .message-bubble {
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    background: #6B0000 !important;
     color: white;
 }
 

@@ -396,7 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
                 
-                if (data.status === 'no_major_earthquakes') {
+                if (data.status === 'error' || !data.city_risks || data.city_risks.length === 0) {
                     cityDamageResult.innerHTML = `
                         <div style="background-color: #2ecc71; color: white; padding: 15px; border-radius: 8px;">
                             <h3 style="margin: 0 0 10px 0;">✅ İyi Haber!</h3>

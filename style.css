@@ -113,6 +113,14 @@ h2 {
     color: #ffffff !important;
 }
 
+div.card h2 {
+    color: #ffffff !important;
+}
+
+.card > h2 {
+    color: #ffffff !important;
+}
+
 /* Maps Container - Yan Yana 2 Harita */
 .maps-container {
     display: grid;

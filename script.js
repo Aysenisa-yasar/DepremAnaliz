@@ -353,10 +353,23 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .then(data => {
             if (data.status === 'success') {
+                // Warning varsa göster
+                let warningHtml = '';
+                if (data.warning) {
+                    warningHtml = `
+                        <div style="margin-top: 15px; padding: 10px; background-color: rgba(255, 87, 34, 0.2); border: 1px solid #ff5722; border-radius: 5px;">
+                            <p style="margin: 5px 0; font-size: 0.9em; color: #ff5722; font-weight: 600;">
+                                ⚠️ UYARI: ${data.warning}
+                            </p>
+                        </div>
+                    `;
+                }
+                
                 // Başarı mesajı + Sandbox rehberi
                 locationStatus.innerHTML = `
                     <div style="background-color: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; color: #2ecc71; padding: 15px; border-radius: 8px; margin-top: 10px;">
                         <p style="margin: 0; font-weight: 600;">✅ ${data.message}</p>
+                        ${warningHtml}
                         <div style="margin-top: 15px; padding: 10px; background-color: rgba(255, 193, 7, 0.2); border-radius: 5px;">
                             <p style="margin: 5px 0; font-size: 0.9em; color: #FFC107;">
                                 ⚠️ <strong>ÖNEMLİ - WhatsApp Sandbox'a Katılın (ÜCRETSİZ):</strong>
@@ -752,9 +765,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
+                        let warningHtml = '';
+                        if (data.warning) {
+                            warningHtml = `
+                                <div style="margin-top: 10px; padding: 10px; background-color: rgba(255, 87, 34, 0.2); border: 1px solid #ff5722; border-radius: 5px;">
+                                    <p style="margin: 5px 0; font-size: 0.9em; color: #ff5722; font-weight: 600;">
+                                        ⚠️ UYARI: ${data.warning}
+                                    </p>
+                                </div>
+                            `;
+                        }
                         istanbulAlertResult.innerHTML = `
                             <div style="background-color: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; color: #2ecc71; padding: 15px; border-radius: 8px;">
                                 <p style="margin: 0; font-weight: 600;">✅ ${data.message}</p>
+                                ${warningHtml}
                                 <p style="margin: 10px 0 0 0; font-size: 0.9em;">Deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilecektir.</p>
                             </div>
                         `;

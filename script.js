@@ -47,11 +47,13 @@ function getRiskColor(score) {
     return 'green'; 
 }
 
-// Modern Modal System
+// Modern Modal System - Global functions
 function openModal(title, content) {
     const modalOverlay = document.getElementById('modalOverlay');
     const modalTitle = document.getElementById('modalTitle');
     const modalContent = document.getElementById('modalContent');
+    
+    if (!modalOverlay || !modalTitle || !modalContent) return;
     
     modalTitle.textContent = title;
     modalContent.innerHTML = content;
@@ -61,12 +63,14 @@ function openModal(title, content) {
 
 function closeModal() {
     const modalOverlay = document.getElementById('modalOverlay');
-    modalOverlay.classList.remove('active');
-    document.body.style.overflow = '';
+    if (modalOverlay) {
+        modalOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+    }
 }
 
-// Modal overlay'e tıklandığında kapat
 document.addEventListener('DOMContentLoaded', () => {
+    // Modal System Setup
     const modalOverlay = document.getElementById('modalOverlay');
     const modalClose = document.getElementById('modalClose');
     
@@ -84,13 +88,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // ESC tuşu ile kapat
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modalOverlay.classList.contains('active')) {
+        if (e.key === 'Escape' && modalOverlay && modalOverlay.classList.contains('active')) {
             closeModal();
         }
     });
-});
-
-document.addEventListener('DOMContentLoaded', () => {
+    
     // API URL'ini dinamik olarak kullan (localhost veya production)
     const RENDER_API_BASE_URL = API_URL;
     

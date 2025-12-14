@@ -9,6 +9,7 @@ const API_URL = window.location.hostname === 'localhost' || window.location.host
         : window.location.origin); // Diğer durumlarda aynı domain'i kullan
 
 let mymap = null; 
+let mymap2 = null; 
 
 function initializeMap() {
     if (mymap !== null && mymap._container) {
@@ -18,10 +19,26 @@ function initializeMap() {
     
     mymap = L.map('mapid').setView([39.9, 35.8], 6); 
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // Koyu tema harita
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
-        attribution: '© OpenStreetMap contributors'
+        attribution: '© OpenStreetMap contributors © CARTO'
     }).addTo(mymap);
+}
+
+function initializeMap2() {
+    if (mymap2 !== null && mymap2._container) {
+        mymap2.remove();
+        mymap2 = null;
+    }
+    
+    mymap2 = L.map('mapid2').setView([39.9, 35.8], 6); 
+
+    // Koyu tema harita
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors © CARTO'
+    }).addTo(mymap2);
 }
 
 function getRiskColor(score) {
@@ -51,13 +68,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const cityDamageResult = document.getElementById('cityDamageResult');
     const checkIstanbulWarningButton = document.getElementById('checkIstanbulWarningButton');
     const istanbulWarningResult = document.getElementById('istanbulWarningResult');
-    const collectAllDataButton = document.getElementById('collectAllDataButton');
-    const trainModelsButton = document.getElementById('trainModelsButton');
-    const dataCollectionResult = document.getElementById('dataCollectionResult');
 
     let userCoords = null; 
 
-    function fetchData() {
+    // İlk harita: Risk Analizi
+    function fetchRiskData() {
         listContainer.innerHTML = '<p>YZ risk analizi verileri yükleniyor...</p>';
         initializeMap(); 
 
@@ -74,42 +89,88 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Hata kontrolü
                 if (data.error) {
-                    listContainer.innerHTML = `<p style="color: red;">Hata: ${data.error}</p>`;
-                    // Yine de fay hatlarını göster
-                    if (data.fault_lines && data.fault_lines.length > 0) {
-                        data.fault_lines.forEach(fault => {
-                            const faultCoords = fault.coords.map(coord => [coord[0], coord[1]]);
-                            L.polyline(faultCoords, {
-                                color: '#DC143C',
-                                weight: 4,
-                                opacity: 0.8,
-                                dashArray: '10, 5'
-                            }).addTo(mymap).bindPopup(`<b>${fault.name}</b><br>⚠️ Aktif Fay Hattı`);
-                            bounds.push(...faultCoords);
-                        });
-                    }
-                    if (bounds.length > 0) {
-                        mymap.fitBounds(bounds, { padding: [50, 50] });
-                    }
+                    listContainer.innerHTML = `<p style="color: #FF1744;">Hata: ${data.error}</p>`;
                     return;
                 }
                 
-                // 1. Aktif fay hatlarını haritaya ekle (ÖNCE - en altta kalacak)
+                // YZ Risk bölgelerini ekle (SADECE RİSK ANALİZİ)
+                if (data.risk_regions && data.risk_regions.length > 0) {
+                    data.risk_regions.forEach(riskRegion => {
+                        const { lat, lon, score, density } = riskRegion;
+                        bounds.push([lat, lon]);
+                        
+                        const color = getRiskColor(score);
+                        
+                        const marker = L.circleMarker([lat, lon], {
+                            radius: score * 1.5, 
+                            color: color,
+                            fillColor: color,
+                            fillOpacity: 0.6,
+                            weight: 3
+                        }).addTo(mymap);
+                        
+                        const popupContent = `
+                            <b style="color: ${color};">🤖 YZ Risk Merkezi #${riskRegion.id + 1}</b><br>
+                            Risk Puanı: <b>${score.toFixed(1)} / 10</b><br>
+                            Yoğunluk: ${density} deprem
+                        `;
+                        marker.bindPopup(popupContent);
+                    });
+                }
+                
+                // Veri yoksa mesaj göster
+                if (!data.risk_regions || data.risk_regions.length === 0) {
+                    listContainer.innerHTML = '<p style="color: #FF1744;">Şu anda yeterli risk analizi verisi yok.</p>';
+                }
+                
+                // Haritayı tüm işaretlere göre ayarla
+                if (bounds.length > 0) {
+                    mymap.fitBounds(bounds, { padding: [50, 50] });
+                } else {
+                    mymap.setView([39.9, 35.8], 6);
+                }
+            })
+            .catch(error => {
+                console.error('Veri çekme hatası:', error);
+                listContainer.innerHTML = `<p style="color: #FF1744;">Hata: YZ sunucusuna bağlanılamadı. (${error.message})</p>`;
+            });
+    }
+
+    // İkinci harita: Son 1 Gün Depremler + Aktif Fay Hatları
+    function fetchEarthquakeData() {
+        initializeMap2(); 
+
+        fetch(apiURL)
+            .then(response => {
+                if (!response.ok && response.status !== 404 && response.status !== 503 && response.status !== 500) {
+                    throw new Error('YZ API bağlantı hatası: Beklenmeyen Kod ' + response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                let bounds = [];
+                
+                // Hata kontrolü
+                if (data.error) {
+                    return;
+                }
+                
+                // 1. Aktif fay hatlarını haritaya ekle
                 if (data.fault_lines && data.fault_lines.length > 0) {
                     data.fault_lines.forEach(fault => {
                         const faultCoords = fault.coords.map(coord => [coord[0], coord[1]]);
                         const polyline = L.polyline(faultCoords, {
-                            color: '#DC143C',  // Koyu kırmızı
+                            color: '#FF1744',  // Kırmızı
                             weight: 4,
                             opacity: 0.8,
                             dashArray: '10, 5'  // Kesikli çizgi
-                        }).addTo(mymap);
-                        polyline.bindPopup(`<b>${fault.name}</b><br>⚠️ Aktif Fay Hattı`);
+                        }).addTo(mymap2);
+                        polyline.bindPopup(`<b style="color: #FF1744;">${fault.name}</b><br>⚠️ Aktif Fay Hattı`);
                         bounds.push(...faultCoords);
                     });
                 }
                 
-                // 2. Son depremleri haritaya ekle (GERÇEK DEPREMLER)
+                // 2. Son 1 günde olan depremleri haritaya ekle
                 if (data.recent_earthquakes && data.recent_earthquakes.length > 0) {
                     data.recent_earthquakes.forEach((eq, index) => {
                         if (eq.geojson && eq.geojson.coordinates) {
@@ -125,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             let eqColor = '#2ecc71'; // Yeşil (düşük)
                             let radius = 5;
                             if (mag >= 5.0) {
-                                eqColor = '#e74c3c'; // Kırmızı (yüksek)
+                                eqColor = '#FF1744'; // Kırmızı (yüksek)
                                 radius = 12;
                             } else if (mag >= 4.0) {
                                 eqColor = '#f39c12'; // Turuncu (orta)
@@ -142,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 fillColor: eqColor,
                                 fillOpacity: 0.8,
                                 weight: 2
-                            }).addTo(mymap);
+                            }).addTo(mymap2);
                             
                             const popupContent = `
                                 <b>📍 Deprem #${index + 1}</b><br>
@@ -152,70 +213,25 @@ document.addEventListener('DOMContentLoaded', () => {
                                 Derinlik: ${eq.depth || 'N/A'} km
                             `;
                             eqMarker.bindPopup(popupContent);
-                            
-                            // Liste için item oluştur
-                            const item = document.createElement('div');
-                            item.className = 'earthquake-item';
-                            let magnitudeClass = (mag >= 5.0) ? 'mag-high' : (mag >= 4.0 ? 'mag-medium' : 'mag-low');
-                            
-                            item.innerHTML = `
-                                <div class="magnitude-box ${magnitudeClass}">${mag.toFixed(1)}</div>
-                                <div class="details">
-                                    <p class="location">${location}</p>
-                                    <p class="info">
-                                        Tarih: ${date} ${time} | 
-                                        Derinlik: ${eq.depth || 'N/A'} km
-                                    </p>
-                                </div>
-                            `;
-                            listContainer.appendChild(item);
                         }
                     });
                 }
                 
-                // 3. YZ Risk bölgelerini ekle (EN ÜSTTE - en son eklenen)
-                if (data.risk_regions && data.risk_regions.length > 0) {
-                    data.risk_regions.forEach(riskRegion => {
-                        const { lat, lon, score, density } = riskRegion;
-                        bounds.push([lat, lon]);
-                        
-                        const color = getRiskColor(score);
-                        
-                        const marker = L.circleMarker([lat, lon], {
-                            radius: score * 1.5, 
-                            color: color,
-                            fillColor: color,
-                            fillOpacity: 0.5,
-                            weight: 3
-                        }).addTo(mymap);
-                        
-                        const popupContent = `
-                            <b>🤖 YZ Risk Merkezi #${riskRegion.id + 1}</b><br>
-                            Risk Puanı: <b>${score.toFixed(1)} / 10</b><br>
-                            Yoğunluk: ${density} deprem
-                        `;
-                        marker.bindPopup(popupContent);
-                    });
-                }
-                
-                // Veri yoksa mesaj göster
-                if ((!data.recent_earthquakes || data.recent_earthquakes.length === 0) && 
-                    (!data.risk_regions || data.risk_regions.length === 0)) {
-                    listContainer.innerHTML = '<p>Şu anda yeterli deprem verisi yok veya risk düşüktür.</p>';
-                }
-                
                 // Haritayı tüm işaretlere göre ayarla
                 if (bounds.length > 0) {
-                    mymap.fitBounds(bounds, { padding: [50, 50] });
+                    mymap2.fitBounds(bounds, { padding: [50, 50] });
                 } else {
-                    // Varsayılan Türkiye görünümü
-                    mymap.setView([39.9, 35.8], 6);
+                    mymap2.setView([39.9, 35.8], 6);
                 }
             })
             .catch(error => {
                 console.error('Veri çekme hatası:', error);
-                listContainer.innerHTML = `<p>Hata: YZ sunucusuna bağlanılamadı. Render sunucunuzun aktif olduğunu kontrol edin. (${error.message})</p>`;
             });
+    }
+
+    function fetchData() {
+        fetchRiskData();
+        fetchEarthquakeData();
     } 
 
     // Konum Alma Fonksiyonu
@@ -480,6 +496,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     refreshButton.addEventListener('click', fetchData);
+    
+    // İlk yüklemede her iki haritayı da başlat
     fetchData();
 
     // Chatbot

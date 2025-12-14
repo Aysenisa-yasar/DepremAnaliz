@@ -1158,73 +1158,21 @@ def get_risk_analysis():
     start_time = time.time()
     
     try:
-        earthquake_data = fetch_earthquake_data_with_retry(max_retries=3, timeout=30)
-        
-        if not earthquake_data:
-            print("UYARI: Deprem verisi boş")
-            return jsonify({
-                "status": "low_activity",
-                "risk_regions": [],
-                "fault_lines": TURKEY_FAULT_LINES,
-                "recent_earthquakes": [],
-                "message": "Şu anda deprem verisi bulunamadı."
-            })
-    except requests.exceptions.Timeout:
-        print("HATA: API timeout")
-        return jsonify({
-            "status": "error",
-            "error": "Veri kaynağına bağlanılamadı (timeout).",
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": [],
-            "risk_regions": []
-        }), 500
+        response = requests.get(KANDILLI_API, timeout=10)
+        response.raise_for_status() 
+        earthquake_data = response.json().get('result', [])
     except requests.exceptions.RequestException as e:
         print(f"HATA: Kandilli verisi çekilemedi: {e}")
-        return jsonify({
-            "status": "error",
-            "error": f"Veri kaynağına erişilemedi: {str(e)}",
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": [],
-            "risk_regions": []
-        }), 500
-    except Exception as e:
-        print(f"BEKLENMEYEN HATA: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "status": "error",
-            "error": f"Beklenmeyen hata: {str(e)}",
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": [],
-            "risk_regions": []
-        }), 500
+        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
 
-    try:
-        risk_data = calculate_clustering_risk(earthquake_data)
-        
-        # Eğer risk_data dict değilse, dict'e çevir
-        if not isinstance(risk_data, dict):
-            risk_data = {"status": "low_activity", "risk_regions": []}
-        
-        # Her zaman fault_lines ve recent_earthquakes ekle
-        risk_data['fault_lines'] = TURKEY_FAULT_LINES
-        risk_data['recent_earthquakes'] = earthquake_data[:20] if earthquake_data else []
-        
-        end_time = time.time()
-        print(f"Analiz süresi: {end_time - start_time:.2f} saniye")
-        
-        return jsonify(risk_data)
-    except Exception as e:
-        print(f"HATA: Risk analizi sırasında hata: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "status": "error",
-            "error": f"Risk analizi hatası: {str(e)}",
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": earthquake_data[:20] if earthquake_data else [],
-            "risk_regions": []
-        }), 500
+    risk_data = calculate_clustering_risk(earthquake_data)
+    risk_data['fault_lines'] = TURKEY_FAULT_LINES
+    risk_data['recent_earthquakes'] = earthquake_data[:20]  # Son 20 deprem
+    
+    end_time = time.time()
+    print(f"Analiz süresi: {end_time - start_time:.2f} saniye")
+    
+    return jsonify(risk_data)
 
 @app.route('/api/damage-estimate', methods=['POST'])
 def estimate_damage():
@@ -1250,10 +1198,8 @@ def predict_risk():
     use_ml = data.get('use_ml', True)  # ML kullanımı (varsayılan: True)
     
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
-    except requests.exceptions.RequestException as e:
+        earthquake_data = fetch_earthquake_data_with_retry(max_retries=3, timeout=30)
+    except Exception as e:
         return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
     
     # Gelişmiş ML modeli ile tahmin

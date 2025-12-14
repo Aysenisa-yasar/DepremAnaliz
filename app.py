@@ -1158,21 +1158,73 @@ def get_risk_analysis():
     start_time = time.time()
     
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
+        earthquake_data = fetch_earthquake_data_with_retry(max_retries=3, timeout=30)
+        
+        if not earthquake_data:
+            print("UYARI: Deprem verisi boş")
+            return jsonify({
+                "status": "low_activity",
+                "risk_regions": [],
+                "fault_lines": TURKEY_FAULT_LINES,
+                "recent_earthquakes": [],
+                "message": "Şu anda deprem verisi bulunamadı."
+            })
+    except requests.exceptions.Timeout:
+        print("HATA: API timeout")
+        return jsonify({
+            "status": "error",
+            "error": "Veri kaynağına bağlanılamadı (timeout).",
+            "fault_lines": TURKEY_FAULT_LINES,
+            "recent_earthquakes": [],
+            "risk_regions": []
+        }), 500
     except requests.exceptions.RequestException as e:
         print(f"HATA: Kandilli verisi çekilemedi: {e}")
-        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
+        return jsonify({
+            "status": "error",
+            "error": f"Veri kaynağına erişilemedi: {str(e)}",
+            "fault_lines": TURKEY_FAULT_LINES,
+            "recent_earthquakes": [],
+            "risk_regions": []
+        }), 500
+    except Exception as e:
+        print(f"BEKLENMEYEN HATA: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "error": f"Beklenmeyen hata: {str(e)}",
+            "fault_lines": TURKEY_FAULT_LINES,
+            "recent_earthquakes": [],
+            "risk_regions": []
+        }), 500
 
-    risk_data = calculate_clustering_risk(earthquake_data)
-    risk_data['fault_lines'] = TURKEY_FAULT_LINES
-    risk_data['recent_earthquakes'] = earthquake_data[:20]  # Son 20 deprem
-    
-    end_time = time.time()
-    print(f"Analiz süresi: {end_time - start_time:.2f} saniye")
-    
-    return jsonify(risk_data)
+    try:
+        risk_data = calculate_clustering_risk(earthquake_data)
+        
+        # Eğer risk_data dict değilse, dict'e çevir
+        if not isinstance(risk_data, dict):
+            risk_data = {"status": "low_activity", "risk_regions": []}
+        
+        # Her zaman fault_lines ve recent_earthquakes ekle
+        risk_data['fault_lines'] = TURKEY_FAULT_LINES
+        risk_data['recent_earthquakes'] = earthquake_data[:20] if earthquake_data else []
+        
+        end_time = time.time()
+        print(f"Analiz süresi: {end_time - start_time:.2f} saniye")
+        
+        return jsonify(risk_data)
+    except Exception as e:
+        print(f"HATA: Risk analizi sırasında hata: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "error": f"Risk analizi hatası: {str(e)}",
+            "fault_lines": TURKEY_FAULT_LINES,
+            "recent_earthquakes": earthquake_data[:20] if earthquake_data else [],
+            "risk_regions": []
+        }), 500
 
 @app.route('/api/damage-estimate', methods=['POST'])
 def estimate_damage():
@@ -1365,78 +1417,6 @@ def city_damage_analysis():
         "affected_cities": len(sorted_cities),
         "city_damages": sorted_cities
     })
-
-@app.route('/api/chatbot', methods=['POST'])
-def chatbot():
-    """ Deprem asistanı chatbot endpoint'i. """
-    data = request.get_json()
-    user_message = data.get('message', '').lower().strip()
-    
-    # Son deprem verilerini al
-    try:
-        earthquake_data = fetch_earthquake_data_with_retry(max_retries=2, timeout=20)
-    except:
-        earthquake_data = []
-    
-    # Basit AI mantığı - depremle ilgili soruları yanıtla
-    response = ""
-    
-    if any(word in user_message for word in ['merhaba', 'selam', 'hey', 'hi']):
-        response = "Merhaba! Ben deprem asistanınız. Depremler, güvenlik önlemleri, risk analizi ve erken uyarı sistemi hakkında sorularınızı yanıtlayabilirim. Nasıl yardımcı olabilirim?"
-    
-    elif any(word in user_message for word in ['son deprem', 'güncel deprem', 'deprem var mı', 'deprem oldu mu']):
-        if earthquake_data:
-            recent = earthquake_data[:5]
-            response = f"Son {len(recent)} deprem:\n"
-            for i, eq in enumerate(recent, 1):
-                mag = eq.get('mag', 0)
-                location = eq.get('location', 'Bilinmiyor')
-                date = eq.get('date', '')
-                time_str = eq.get('time', '')
-                response += f"{i}. M{mag:.1f} - {location} ({date} {time_str})\n"
-        else:
-            response = "Şu anda deprem verisi çekilemiyor. Lütfen daha sonra tekrar deneyin."
-    
-    elif any(word in user_message for word in ['risk', 'risk analizi', 'risk tahmini']):
-        response = "Risk analizi için haritadaki 'Risk Analizini Yenile' butonuna tıklayın veya 'Konumum İçin Risk Tahmini Yap' butonunu kullanarak konumunuz için özel analiz yapabilirsiniz. Sistem yapay zeka destekli kümeleme algoritması kullanarak risk bölgelerini tespit eder."
-    
-    elif any(word in user_message for word in ['istanbul', 'istanbul deprem', 'istanbul uyarı']):
-        response = "İstanbul için özel erken uyarı sistemimiz var! 'İstanbul Erken Uyarı Durumunu Kontrol Et' butonuna tıklayarak güncel durumu görebilirsiniz. Sistem deprem öncesi sinyalleri tespit ederek WhatsApp ile bildirim gönderir."
-    
-    elif any(word in user_message for word in ['güvenlik', 'güvenlik önlemleri', 'hazırlık', 'nasıl hazırlanmalı']):
-        response = """Deprem öncesi hazırlık önerileri:
-1. Acil durum çantası hazırlayın (su, yiyecek, ilk yardım, fener)
-2. Güvenli alanları belirleyin (masa altı, kapı eşikleri)
-3. Ağır eşyaları sabitleyin
-4. Acil durum planı yapın
-5. Aile üyeleriyle buluşma noktası belirleyin
-6. WhatsApp bildirim sistemimize kaydolun (M≥5.0 depremlerde uyarı alırsınız)"""
-    
-    elif any(word in user_message for word in ['fay hattı', 'fay hatları', 'aktif fay']):
-        response = "Türkiye'deki aktif fay hatları haritada kırmızı kesikli çizgilerle gösterilir. Başlıca fay hatları: Kuzey Anadolu Fay Hattı (KAF), Doğu Anadolu Fay Hattı (DAF), Ege Graben Sistemi ve Batı Anadolu Fay Sistemi."
-    
-    elif any(word in user_message for word in ['hasar', 'hasar tahmini', 'bina hasarı']):
-        response = "Hasar tahmini için 'İl Bazında Hasar Analizi Yap' butonuna tıklayın. Sistem son 24 saatteki M≥5.0 depremler için tüm illerin yapay zeka destekli hasar tahminini yapar. Bina yapısı verilerine göre otomatik hesaplanır."
-    
-    elif any(word in user_message for word in ['bildirim', 'whatsapp', 'uyarı', 'alarm']):
-        response = "WhatsApp bildirimleri için: 1) Konumunuzu belirleyin, 2) WhatsApp numaranızı girin (+90 ile başlamalı), 3) Ayarları kaydedin. M≥5.0 depremlerde 150 km içinde otomatik bildirim alırsınız. İstanbul'da iseniz deprem öncesi erken uyarı da alırsınız."
-    
-    elif any(word in user_message for word in ['yardım', 'help', 'komutlar', 'ne yapabilirsin']):
-        response = """Size şunları yapabilirim:
-- Son depremleri gösterebilirim
-- Risk analizi hakkında bilgi verebilirim
-- İstanbul erken uyarı sistemi hakkında bilgi verebilirim
-- Güvenlik önlemleri önerebilirim
-- Fay hatları hakkında bilgi verebilirim
-- Hasar tahmini hakkında bilgi verebilirim
-- WhatsApp bildirimleri hakkında bilgi verebilirim
-
-Sadece sorunuzu yazın!"""
-    
-    else:
-        response = "Üzgünüm, bu konuda yeterli bilgim yok. Depremler, risk analizi, güvenlik önlemleri, İstanbul erken uyarı sistemi veya WhatsApp bildirimleri hakkında sorular sorabilirsiniz. 'yardım' yazarak tüm komutları görebilirsiniz."
-    
-    return jsonify({"response": response})
 
 @app.route('/api/set-alert', methods=['POST'])
 def set_alert_settings():

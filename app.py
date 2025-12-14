@@ -1299,14 +1299,35 @@ def get_risk_analysis():
             "message": f"Veri kaynağına erişilemedi: {str(e)}"
         })
 
-    risk_data = calculate_clustering_risk(earthquake_data)
-    risk_data['fault_lines'] = TURKEY_FAULT_LINES
-    risk_data['recent_earthquakes'] = earthquake_data[:20]  # Son 20 deprem
-    
-    end_time = time.time()
-    print(f"Analiz süresi: {end_time - start_time:.2f} saniye")
-    
-    return jsonify(risk_data)
+        try:
+            risk_data = calculate_clustering_risk(earthquake_data)
+            risk_data['fault_lines'] = TURKEY_FAULT_LINES
+            risk_data['recent_earthquakes'] = earthquake_data[:20] if earthquake_data else []  # Son 20 deprem
+            
+            end_time = time.time()
+            print(f"Analiz süresi: {end_time - start_time:.2f} saniye")
+            
+            return jsonify(risk_data)
+        except Exception as e:
+            print(f"[ERROR] Risk analizi hesaplama hatası: {e}")
+            # Fallback: Sadece fault lines döndür
+            return jsonify({
+                "status": "error",
+                "risk_regions": [],
+                "fault_lines": TURKEY_FAULT_LINES,
+                "recent_earthquakes": earthquake_data[:20] if earthquake_data else [],
+                "message": f"Risk analizi yapılamadı: {str(e)}"
+            })
+            
+    except Exception as e:
+        print(f"[ERROR] Beklenmeyen hata: {e}")
+        return jsonify({
+            "status": "error",
+            "risk_regions": [],
+            "fault_lines": TURKEY_FAULT_LINES,
+            "recent_earthquakes": [],
+            "message": f"Sunucu hatası: {str(e)}"
+        }), 500
 
 @app.route('/api/damage-estimate', methods=['POST'])
 def estimate_damage():
@@ -1542,11 +1563,11 @@ def city_damage_analysis():
             print(f"[WARNING] API'den veri çekilemedi: {e}")
             earthquake_data = []  # Boş liste ile devam et
     
-    # Son 24 saatteki tüm depremleri kullan (magnitude filtresi yok)
-    recent_earthquakes = []
-    current_time = time.time()
-    
-    for eq in earthquake_data:
+        # Son 24 saatteki tüm depremleri kullan (magnitude filtresi yok)
+        recent_earthquakes = []
+        current_time = time.time()
+        
+        for eq in earthquake_data:
         if not eq.get('geojson') or not eq['geojson'].get('coordinates'):
             continue
         # Son 24 saat içindeki depremler
@@ -1813,9 +1834,18 @@ def set_alert_settings():
     confirmation_body += f"📍 Kayıtlı Konum: {lat:.4f}, {lon:.4f}\n"
     confirmation_body += f"🔔 Bölgenizde (150 km içinde) M ≥ 5.0 deprem olursa size anında WhatsApp ile haber vereceğiz."
     
-    send_whatsapp_notification(number, confirmation_body, location_url)
-    
-    return jsonify({"status": "success", "message": "Bildirim ayarlarınız kaydedildi."})
+        try:
+            send_whatsapp_notification(number, confirmation_body, location_url)
+        except Exception as e:
+            print(f"[WARNING] WhatsApp bildirimi gönderilemedi: {e}")
+            # Bildirim gönderilemese bile ayarları kaydet
+        
+        return jsonify({"status": "success", "message": "Bildirim ayarlarınız kaydedildi."})
+    except ValueError as e:
+        return jsonify({"status": "error", "message": f"Geçersiz veri formatı: {str(e)}"}), 400
+    except Exception as e:
+        print(f"[ERROR] Bildirim ayarları hatası: {e}")
+        return jsonify({"status": "error", "message": f"Sunucu hatası: {str(e)}"}), 500
 
 
 # --- ARKA PLAN BİLDİRİM KONTROLÜ ---

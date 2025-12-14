@@ -5,7 +5,8 @@
   "main": "whatsapp-service.js",
   "scripts": {
     "start": "node whatsapp-service.js",
-    "dev": "nodemon whatsapp-service.js"
+    "dev": "nodemon whatsapp-service.js",
+    "install:skip-puppeteer": "set PUPPETEER_SKIP_DOWNLOAD=true && npm install"
   },
   "keywords": [
     "whatsapp",

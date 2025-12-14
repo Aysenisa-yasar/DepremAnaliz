@@ -25,10 +25,31 @@ body {
     font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     background: var(--color-background);
     background-attachment: fixed;
-    color: var(--color-text);
+    color: #000000;
     line-height: 1.6;
     min-height: 100vh;
     padding: 20px;
+}
+
+/* Normal yazılar siyah */
+p {
+    color: #000000 !important;
+}
+
+span {
+    color: #000000 !important;
+}
+
+div {
+    color: #000000;
+}
+
+.card p {
+    color: #000000 !important;
+}
+
+.card span {
+    color: #000000 !important;
 }
 
 .container {
@@ -85,7 +106,7 @@ h1.header-title {
 }
 
 .subtitle {
-    color: var(--color-light-text);
+    color: #000000 !important;
     font-size: 1.1em;
     position: relative;
     z-index: 1;
@@ -297,13 +318,13 @@ button:active, .action-button:active, .save-button:active {
 .details .location {
     font-size: 1.3em;
     font-weight: 700;
-    color: var(--color-text);
+    color: #000000 !important;
     margin-bottom: 5px;
 }
 
 .details .info {
     font-size: 0.95em;
-    color: var(--color-light-text);
+    color: #000000 !important;
 }
 
 /* Input Fields */

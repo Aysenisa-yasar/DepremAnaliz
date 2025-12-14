@@ -27,14 +27,7 @@ import pandas as pd
 
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
-# CORS ayarları - GitHub Pages ve diğer domain'lerden erişim için
-CORS(app, resources={
-    r"/api/*": {
-        "origins": ["*"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-}) 
+CORS(app) 
 
 # Kandilli verilerini çeken üçüncü taraf API
 KANDILLI_API = 'https://api.orhanaydogdu.com.tr/deprem/kandilli/live'
@@ -1165,76 +1158,21 @@ def get_risk_analysis():
     start_time = time.time()
     
     try:
-        response = requests.get(KANDILLI_API, timeout=15)
+        response = requests.get(KANDILLI_API, timeout=10)
         response.raise_for_status() 
         earthquake_data = response.json().get('result', [])
-        
-        if not earthquake_data:
-            print("UYARI: Deprem verisi boş")
-            return jsonify({
-                "status": "low_activity",
-                "risk_regions": [],
-                "fault_lines": TURKEY_FAULT_LINES,
-                "recent_earthquakes": [],
-                "message": "Şu anda deprem verisi bulunamadı."
-            })
-            
-    except requests.exceptions.Timeout:
-        print("HATA: API timeout")
-        return jsonify({
-            "status": "error",
-            "error": "Veri kaynağına bağlanılamadı (timeout).",
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": [],
-            "risk_regions": []
-        }), 500
     except requests.exceptions.RequestException as e:
         print(f"HATA: Kandilli verisi çekilemedi: {e}")
-        return jsonify({
-            "status": "error",
-            "error": f"Veri kaynağına erişilemedi: {str(e)}",
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": [],
-            "risk_regions": []
-        }), 500
-    except Exception as e:
-        print(f"BEKLENMEYEN HATA: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "status": "error",
-            "error": f"Beklenmeyen hata: {str(e)}",
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": [],
-            "risk_regions": []
-        }), 500
+        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
 
-    try:
-        risk_data = calculate_clustering_risk(earthquake_data)
-        
-        # Eğer risk_data dict değilse, dict'e çevir
-        if not isinstance(risk_data, dict):
-            risk_data = {"status": "low_activity", "risk_regions": []}
-        
-        # Her zaman fault_lines ve recent_earthquakes ekle
-        risk_data['fault_lines'] = TURKEY_FAULT_LINES
-        risk_data['recent_earthquakes'] = earthquake_data[:20] if earthquake_data else []
-        
-        end_time = time.time()
-        print(f"Analiz süresi: {end_time - start_time:.2f} saniye")
-        
-        return jsonify(risk_data)
-    except Exception as e:
-        print(f"HATA: Risk analizi sırasında hata: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "status": "error",
-            "error": f"Risk analizi hatası: {str(e)}",
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": earthquake_data[:20] if earthquake_data else [],
-            "risk_regions": []
-        }), 500
+    risk_data = calculate_clustering_risk(earthquake_data)
+    risk_data['fault_lines'] = TURKEY_FAULT_LINES
+    risk_data['recent_earthquakes'] = earthquake_data[:20]  # Son 20 deprem
+    
+    end_time = time.time()
+    print(f"Analiz süresi: {end_time - start_time:.2f} saniye")
+    
+    return jsonify(risk_data)
 
 @app.route('/api/damage-estimate', methods=['POST'])
 def estimate_damage():
@@ -1428,6 +1366,78 @@ def city_damage_analysis():
         "city_damages": sorted_cities
     })
 
+@app.route('/api/chatbot', methods=['POST'])
+def chatbot():
+    """ Deprem asistanı chatbot endpoint'i. """
+    data = request.get_json()
+    user_message = data.get('message', '').lower().strip()
+    
+    # Son deprem verilerini al
+    try:
+        earthquake_data = fetch_earthquake_data_with_retry(max_retries=2, timeout=20)
+    except:
+        earthquake_data = []
+    
+    # Basit AI mantığı - depremle ilgili soruları yanıtla
+    response = ""
+    
+    if any(word in user_message for word in ['merhaba', 'selam', 'hey', 'hi']):
+        response = "Merhaba! Ben deprem asistanınız. Depremler, güvenlik önlemleri, risk analizi ve erken uyarı sistemi hakkında sorularınızı yanıtlayabilirim. Nasıl yardımcı olabilirim?"
+    
+    elif any(word in user_message for word in ['son deprem', 'güncel deprem', 'deprem var mı', 'deprem oldu mu']):
+        if earthquake_data:
+            recent = earthquake_data[:5]
+            response = f"Son {len(recent)} deprem:\n"
+            for i, eq in enumerate(recent, 1):
+                mag = eq.get('mag', 0)
+                location = eq.get('location', 'Bilinmiyor')
+                date = eq.get('date', '')
+                time_str = eq.get('time', '')
+                response += f"{i}. M{mag:.1f} - {location} ({date} {time_str})\n"
+        else:
+            response = "Şu anda deprem verisi çekilemiyor. Lütfen daha sonra tekrar deneyin."
+    
+    elif any(word in user_message for word in ['risk', 'risk analizi', 'risk tahmini']):
+        response = "Risk analizi için haritadaki 'Risk Analizini Yenile' butonuna tıklayın veya 'Konumum İçin Risk Tahmini Yap' butonunu kullanarak konumunuz için özel analiz yapabilirsiniz. Sistem yapay zeka destekli kümeleme algoritması kullanarak risk bölgelerini tespit eder."
+    
+    elif any(word in user_message for word in ['istanbul', 'istanbul deprem', 'istanbul uyarı']):
+        response = "İstanbul için özel erken uyarı sistemimiz var! 'İstanbul Erken Uyarı Durumunu Kontrol Et' butonuna tıklayarak güncel durumu görebilirsiniz. Sistem deprem öncesi sinyalleri tespit ederek WhatsApp ile bildirim gönderir."
+    
+    elif any(word in user_message for word in ['güvenlik', 'güvenlik önlemleri', 'hazırlık', 'nasıl hazırlanmalı']):
+        response = """Deprem öncesi hazırlık önerileri:
+1. Acil durum çantası hazırlayın (su, yiyecek, ilk yardım, fener)
+2. Güvenli alanları belirleyin (masa altı, kapı eşikleri)
+3. Ağır eşyaları sabitleyin
+4. Acil durum planı yapın
+5. Aile üyeleriyle buluşma noktası belirleyin
+6. WhatsApp bildirim sistemimize kaydolun (M≥5.0 depremlerde uyarı alırsınız)"""
+    
+    elif any(word in user_message for word in ['fay hattı', 'fay hatları', 'aktif fay']):
+        response = "Türkiye'deki aktif fay hatları haritada kırmızı kesikli çizgilerle gösterilir. Başlıca fay hatları: Kuzey Anadolu Fay Hattı (KAF), Doğu Anadolu Fay Hattı (DAF), Ege Graben Sistemi ve Batı Anadolu Fay Sistemi."
+    
+    elif any(word in user_message for word in ['hasar', 'hasar tahmini', 'bina hasarı']):
+        response = "Hasar tahmini için 'İl Bazında Hasar Analizi Yap' butonuna tıklayın. Sistem son 24 saatteki M≥5.0 depremler için tüm illerin yapay zeka destekli hasar tahminini yapar. Bina yapısı verilerine göre otomatik hesaplanır."
+    
+    elif any(word in user_message for word in ['bildirim', 'whatsapp', 'uyarı', 'alarm']):
+        response = "WhatsApp bildirimleri için: 1) Konumunuzu belirleyin, 2) WhatsApp numaranızı girin (+90 ile başlamalı), 3) Ayarları kaydedin. M≥5.0 depremlerde 150 km içinde otomatik bildirim alırsınız. İstanbul'da iseniz deprem öncesi erken uyarı da alırsınız."
+    
+    elif any(word in user_message for word in ['yardım', 'help', 'komutlar', 'ne yapabilirsin']):
+        response = """Size şunları yapabilirim:
+- Son depremleri gösterebilirim
+- Risk analizi hakkında bilgi verebilirim
+- İstanbul erken uyarı sistemi hakkında bilgi verebilirim
+- Güvenlik önlemleri önerebilirim
+- Fay hatları hakkında bilgi verebilirim
+- Hasar tahmini hakkında bilgi verebilirim
+- WhatsApp bildirimleri hakkında bilgi verebilirim
+
+Sadece sorunuzu yazın!"""
+    
+    else:
+        response = "Üzgünüm, bu konuda yeterli bilgim yok. Depremler, risk analizi, güvenlik önlemleri, İstanbul erken uyarı sistemi veya WhatsApp bildirimleri hakkında sorular sorabilirsiniz. 'yardım' yazarak tüm komutları görebilirsiniz."
+    
+    return jsonify({"response": response})
+
 @app.route('/api/set-alert', methods=['POST'])
 def set_alert_settings():
     """ Kullanıcının konumunu ve bildirim telefon numarasını kaydeder ve onay mesajı gönderir. """
@@ -1469,72 +1479,12 @@ def set_alert_settings():
 
 # --- ARKA PLAN BİLDİRİM KONTROLÜ ---
 
-def collect_historical_data():
-    """ Geçmiş 1 ay deprem verilerini toplar ve kaydeder. """
-    global EARTHQUAKE_HISTORY_FILE
-    
-    while True:
-        time.sleep(3600)  # Her 1 saatte bir geçmiş veri topla
-        
-        try:
-            # Kandilli API'den veri çek
-            response = requests.get(KANDILLI_API, timeout=15)
-            response.raise_for_status()
-            earthquakes = response.json().get('result', [])
-            
-            if not earthquakes:
-                continue
-            
-            # Mevcut tarihsel veriyi yükle
-            historical_data = []
-            if os.path.exists(EARTHQUAKE_HISTORY_FILE):
-                try:
-                    with open(EARTHQUAKE_HISTORY_FILE, 'r', encoding='utf-8') as f:
-                        historical_data = json.load(f)
-                except:
-                    historical_data = []
-            
-            # Yeni depremleri ekle (tekrar kontrolü)
-            seen_ids = set()
-            for eq in historical_data:
-                if eq.get('geojson') and eq['geojson'].get('coordinates'):
-                    lon, lat = eq['geojson']['coordinates']
-                    eq_id = f"{eq.get('mag', 0)}_{lat}_{lon}_{eq.get('timestamp', 0)}"
-                    seen_ids.add(eq_id)
-            
-            new_count = 0
-            for eq in earthquakes:
-                if eq.get('geojson') and eq['geojson'].get('coordinates'):
-                    lon, lat = eq['geojson']['coordinates']
-                    eq_id = f"{eq.get('mag', 0)}_{lat}_{lon}_{eq.get('timestamp', 0)}"
-                    if eq_id not in seen_ids:
-                        # Timestamp ekle
-                        if 'timestamp' not in eq:
-                            eq['timestamp'] = time.time()
-                        historical_data.append(eq)
-                        seen_ids.add(eq_id)
-                        new_count += 1
-            
-            # Son 1 ay verilerini tut (yaklaşık 30 gün * 24 saat * 10 deprem = 7200)
-            # Ama daha fazla tutabiliriz (son 10000 deprem)
-            if len(historical_data) > 10000:
-                historical_data = historical_data[-10000:]
-            
-            # Kaydet
-            with open(EARTHQUAKE_HISTORY_FILE, 'w', encoding='utf-8') as f:
-                json.dump(historical_data, f, ensure_ascii=False, indent=2)
-            
-            if new_count > 0:
-                print(f"[TARİHSEL VERİ] {new_count} yeni deprem verisi eklendi. Toplam: {len(historical_data)}")
-        except Exception as e:
-            print(f"[HATA] Tarihsel veri toplama hatası: {e}")
-
 def check_for_big_earthquakes():
     """ Arka planda sürekli çalışır, M >= 5.0 deprem olup olmadığını kontrol eder. """
     global last_big_earthquake, user_alerts
     
     while True:
-        time.sleep(30)  # 30 saniyede bir kontrol et (daha sık) 
+        time.sleep(60) 
 
         try:
             response = requests.get(KANDILLI_API, timeout=5)
@@ -1543,36 +1493,22 @@ def check_for_big_earthquakes():
         except requests.exceptions.RequestException:
             continue
         
-        # İstanbul erken uyarı kontrolü (depremden ÖNCE uyarı)
+        # İstanbul erken uyarı kontrolü
         istanbul_warning = istanbul_early_warning_system(earthquakes)
-        if istanbul_warning['alert_level'] in ['KRİTİK', 'YÜKSEK', 'ORTA']:
+        if istanbul_warning['alert_level'] in ['KRİTİK', 'YÜKSEK']:
             print(f"🚨 İSTANBUL ERKEN UYARI: {istanbul_warning['alert_level']} - {istanbul_warning['message']}")
-            # İstanbul için kayıtlı kullanıcılara bildirim gönder (depremden ÖNCE)
-            user_alerts = load_user_alerts()  # Güncel verileri yükle
+            # İstanbul için kayıtlı kullanıcılara bildirim gönder
             for number, coords in user_alerts.items():
                 city, _ = find_nearest_city(coords['lat'], coords['lon'])
                 if city == 'İstanbul':
-                    # Son gönderilen uyarıyı kontrol et (spam önleme)
-                    last_alert_key = f"istanbul_alert_{number}"
-                    last_alert_time = getattr(check_for_big_earthquakes, last_alert_key, 0)
-                    current_time = time.time()
-                    
-                    # Aynı seviye uyarı için 6 saatte bir gönder
-                    if current_time - last_alert_time > 21600 or istanbul_warning['alert_level'] == 'KRİTİK':
-                        body = f"🚨 İSTANBUL ERKEN UYARI SİSTEMİ 🚨\n"
-                        body += f"⚠️ DEPREM ÖNCESİ UYARI ⚠️\n\n"
-                        body += f"Uyarı Seviyesi: {istanbul_warning['alert_level']}\n"
-                        body += f"Uyarı Skoru: {istanbul_warning.get('alert_score', 0):.2f}/1.0\n"
-                        body += f"Mesaj: {istanbul_warning['message']}\n"
-                        if istanbul_warning.get('time_to_event'):
-                            body += f"Tahmini Süre: {istanbul_warning['time_to_event']}\n"
-                        body += f"\n📍 Konumunuz: İstanbul\n"
-                        body += f"\n⚠️ Lütfen hazırlıklı olun ve acil durum planınızı gözden geçirin!\n"
-                        body += f"📱 Acil durum çantanızı hazırlayın.\n"
-                        body += f"🏠 Güvenli alanlarınızı belirleyin."
-                        
-                        if send_whatsapp_notification(number, body):
-                            setattr(check_for_big_earthquakes, last_alert_key, current_time)
+                    body = f"🚨 İSTANBUL ERKEN UYARI SİSTEMİ 🚨\n"
+                    body += f"Uyarı Seviyesi: {istanbul_warning['alert_level']}\n"
+                    body += f"Uyarı Skoru: {istanbul_warning['alert_score']}/1.0\n"
+                    body += f"Mesaj: {istanbul_warning['message']}\n"
+                    if istanbul_warning.get('time_to_event'):
+                        body += f"Tahmini Süre: {istanbul_warning['time_to_event']}\n"
+                    body += f"\n⚠️ Lütfen hazırlıklı olun ve acil durum planınızı gözden geçirin!"
+                    send_whatsapp_notification(number, body)
 
         for eq in earthquakes:
             mag = eq.get('mag', 0)
@@ -1620,18 +1556,10 @@ def check_for_big_earthquakes():
                             
                             send_whatsapp_notification(number, body)
 
-# Arka plan iş parçacıklarını başlat
-# 1. Sürekli deprem kontrolü (30 saniyede bir)
+# Arka plan iş parçacığını başlat
 alert_thread = Thread(target=check_for_big_earthquakes)
 alert_thread.daemon = True 
 alert_thread.start()
-
-# 2. Geçmiş 1 ay veri toplama (her 1 saatte bir)
-historical_data_thread = Thread(target=collect_historical_data)
-historical_data_thread.daemon = True
-historical_data_thread.start()
-
-print("[BAŞLATILDI] Sürekli deprem izleme ve tarihsel veri toplama aktif!")
 
 
 if __name__ == '__main__':

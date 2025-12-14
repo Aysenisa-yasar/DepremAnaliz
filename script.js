@@ -478,4 +478,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
     refreshButton.addEventListener('click', fetchData);
     fetchData();
+
+    // Chatbot
+    const chatbotToggle = document.getElementById('chatbotToggle');
+    const chatbotWindow = document.getElementById('chatbotWindow');
+    const closeChatbot = document.getElementById('closeChatbot');
+    const chatbotMessages = document.getElementById('chatbotMessages');
+    const chatbotInput = document.getElementById('chatbotInput');
+    const chatbotSend = document.getElementById('chatbotSend');
+
+    chatbotToggle.addEventListener('click', () => {
+        chatbotWindow.classList.toggle('active');
+    });
+
+    closeChatbot.addEventListener('click', () => {
+        chatbotWindow.classList.remove('active');
+    });
+
+    function addMessage(text, isUser = false) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+        messageDiv.innerHTML = `<div class="message-bubble">${text}</div>`;
+        chatbotMessages.appendChild(messageDiv);
+        chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+    }
+
+    function sendChatbotMessage() {
+        const message = chatbotInput.value.trim();
+        if (!message) return;
+
+        addMessage(message, true);
+        chatbotInput.value = '';
+
+        // Loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'message bot';
+        loadingDiv.innerHTML = '<div class="message-bubble"><span class="loading"></span> Düşünüyorum...</div>';
+        chatbotMessages.appendChild(loadingDiv);
+        chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+
+        // Send to backend
+        fetch(`${API_URL}/api/chatbot`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: message })
+        })
+        .then(response => response.json())
+        .then(data => {
+            loadingDiv.remove();
+            addMessage(data.response || 'Üzgünüm, bir hata oluştu.');
+        })
+        .catch(error => {
+            loadingDiv.remove();
+            addMessage('Bağlantı hatası. Lütfen tekrar deneyin.');
+            console.error('Chatbot hatası:', error);
+        });
+    }
+
+    chatbotSend.addEventListener('click', sendChatbotMessage);
+    chatbotInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendChatbotMessage();
+        }
+    });
 });

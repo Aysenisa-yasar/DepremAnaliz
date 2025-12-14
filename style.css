@@ -216,36 +216,34 @@ h4 {
 
 /* Buttons */
 button, .action-button, .save-button {
-    background: #6B0000 !important;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
     color: var(--color-white);
     border: none;
-    padding: 10px 20px;
-    font-size: 0.85em;
+    padding: 15px 30px;
+    font-size: 1em;
     font-weight: 600;
-    border-radius: 8px;
+    border-radius: 12px;
     cursor: pointer;
     transition: all 0.3s;
-    box-shadow: 0 3px 10px rgba(107, 0, 0, 0.4);
+    box-shadow: 0 5px 15px rgba(255, 23, 68, 0.3);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
 button:hover, .action-button:hover, .save-button:hover {
-    background: #8B0000 !important;
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(107, 0, 0, 0.5);
+    box-shadow: 0 8px 25px rgba(255, 23, 68, 0.4);
 }
 
 button:active, .action-button:active, .save-button:active {
-    background: #5B0000 !important;
     transform: translateY(0);
 }
 
 #refreshButton {
     width: 100%;
     margin-bottom: 20px;
-    font-size: 0.9em;
-    padding: 12px;
+    font-size: 1.1em;
+    padding: 18px;
 }
 
 /* Earthquake List */
@@ -358,15 +356,15 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-toggle {
-    width: 50px;
-    height: 50px;
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
-    background: #6B0000 !important;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
     color: white;
     border: none;
-    font-size: 20px;
+    font-size: 24px;
     cursor: pointer;
-    box-shadow: 0 3px 10px rgba(107, 0, 0, 0.4);
+    box-shadow: var(--shadow-strong);
     transition: all 0.3s;
     display: flex;
     align-items: center;
@@ -375,8 +373,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-toggle:hover {
-    background: #8B0000 !important;
-    transform: scale(1.05);
+    transform: scale(1.1);
 }
 
 .chatbot-window {
@@ -395,9 +392,9 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-header {
-    background: #6B0000 !important;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
     color: white;
-    padding: 12px 18px;
+    padding: 15px 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -435,7 +432,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .message.user .message-bubble {
-    background: #6B0000 !important;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
     color: white;
 }
 
@@ -461,7 +458,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: #6B0000 !important;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
     color: white;
     border: none;
     cursor: pointer;
@@ -473,7 +470,8 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 }
 
 .chatbot-send:hover {
-    background: #8B0000 !important;
+    transform: scale(1.05);
+    box-shadow: 0 5px 15px rgba(255, 23, 68, 0.4);
 }
 
 /* Responsive */

@@ -2377,7 +2377,7 @@ def whatsapp_qr():
 def whatsapp_restart():
     """ WhatsApp servisini yeniden başlatır. """
     try:
-        response = requests.post(f"{WHATSAPP_WEB_SERVICE_URL}/restart", timeout=5)
+        response = requests.post(f"{WHATSAPP_WEB_SERVICE_URL}/restart", timeout=10)
         if response.status_code == 200:
             return jsonify(response.json())
         else:
@@ -2385,6 +2385,34 @@ def whatsapp_restart():
                 "success": False,
                 "message": "Servis yeniden başlatılamadı"
             }), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify({
+            "success": False,
+            "message": "WhatsApp servisine bağlanılamadı. Servis çalışıyor mu?"
+        }), 503
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+@app.route('/api/whatsapp-clear-session', methods=['POST'])
+def whatsapp_clear_session():
+    """ WhatsApp session'ını temizler ve servisi yeniden başlatır. """
+    try:
+        response = requests.post(f"{WHATSAPP_WEB_SERVICE_URL}/clear-session", timeout=10)
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Session temizlenemedi"
+            }), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify({
+            "success": False,
+            "message": "WhatsApp servisine bağlanılamadı. Servis çalışıyor mu?"
+        }), 503
     except Exception as e:
         return jsonify({
             "success": False,

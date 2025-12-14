@@ -981,13 +981,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     whatsappStatus.style.display = 'block';
                     whatsappStatus.style.background = 'rgba(243, 156, 18, 0.2)';
                     whatsappStatus.style.border = '1px solid #f39c12';
-                    whatsappStatus.querySelector('p').innerHTML = '⚠️ QR kod hazır. Lütfen QR kod okutun.';
+                    const refreshInfo = data.qrRefreshCount ? ` (${data.qrRefreshCount}. QR kod)` : '';
+                    whatsappStatus.querySelector('p').innerHTML = `⚠️ QR kod hazır${refreshInfo}. Lütfen QR kod okutun. 20 saniye içinde okutulmalı!`;
                     whatsappQrButton.textContent = '📱 QR Kod Göster';
                 } else {
                     whatsappStatus.style.display = 'block';
                     whatsappStatus.style.background = 'rgba(231, 76, 60, 0.2)';
                     whatsappStatus.style.border = '1px solid #e74c3c';
-                    whatsappStatus.querySelector('p').innerHTML = '❌ WhatsApp bağlı değil. QR kod ile bağlanın.';
+                    const errorMsg = data.error ? `<br><small style="opacity: 0.8;">${data.error}</small>` : '';
+                    whatsappStatus.querySelector('p').innerHTML = `❌ WhatsApp bağlı değil. QR kod ile bağlanın.${errorMsg}`;
                     whatsappQrButton.textContent = '📱 WhatsApp QR Kod ile Bağlan';
                 }
             })
@@ -1030,27 +1032,54 @@ document.addEventListener('DOMContentLoaded', () => {
                 whatsappQrButton.textContent = '📱 WhatsApp QR Kod ile Bağlan';
                 
                 if (data.success && data.qr) {
+                    const refreshInfo = data.refreshCount ? ` (${data.refreshCount}. QR kod)` : '';
+                    const instructions = data.instructions ? data.instructions.map((step, i) => `<li style="margin: 8px 0; text-align: left;">${step}</li>`).join('') : '';
+                    
                     openModal('📱 WhatsApp QR Kod ile Bağlan', `
                         <div style="text-align: center; padding: 20px;">
-                            <h3 style="margin-bottom: 20px; color: #ffffff;">WhatsApp'ı Açın ve QR Kodu Okutun</h3>
-                            <div style="background: white; padding: 20px; border-radius: 15px; display: inline-block; margin-bottom: 20px;">
-                                <img src="${data.qr}" alt="WhatsApp QR Code" style="max-width: 300px; height: auto;">
+                            <h3 style="margin-bottom: 20px; color: #ffffff;">WhatsApp'ı Açın ve QR Kodu Okutun${refreshInfo}</h3>
+                            <div style="background: white; padding: 20px; border-radius: 15px; display: inline-block; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                                <img src="${data.qr}" alt="WhatsApp QR Code" style="max-width: 300px; height: auto; display: block;">
                             </div>
-                            <p style="color: rgba(255, 255, 255, 0.9); margin-bottom: 15px;">
-                                1. WhatsApp'ı telefonunuzda açın<br>
-                                2. Ayarlar > Bağlı Cihazlar > Cihaz Bağla<br>
-                                3. QR kodu okutun (20 saniye içinde!)
-                            </p>
+                            ${instructions ? `
+                                <div style="background: rgba(52, 73, 94, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 20px; margin: 20px 0; text-align: left;">
+                                    <h4 style="margin: 0 0 15px 0; color: #ffffff; font-size: 1.1em;">📋 Adım Adım Talimatlar:</h4>
+                                    <ol style="margin: 0; padding-left: 20px; color: rgba(255, 255, 255, 0.9); line-height: 1.8;">
+                                        ${instructions}
+                                    </ol>
+                                </div>
+                            ` : `
+                                <p style="color: rgba(255, 255, 255, 0.9); margin-bottom: 15px; line-height: 1.8;">
+                                    1. WhatsApp'ı telefonunuzda açın<br>
+                                    2. <strong>Ayarlar</strong> > <strong>Bağlı Cihazlar</strong> > <strong>Cihaz Bağla</strong><br>
+                                    3. QR kodu okutun (20 saniye içinde!)
+                                </p>
+                            `}
                             <div style="background: rgba(243, 156, 18, 0.2); border: 1px solid #f39c12; border-radius: 10px; padding: 15px; margin: 20px 0;">
-                                <p style="margin: 0; color: #f39c12; font-size: 0.9em;">
-                                    ⚠️ QR kod 20 saniyede bir yenilenir. Hızlı okutun!
+                                <p style="margin: 0; color: #f39c12; font-size: 0.95em; font-weight: 600;">
+                                    ⚠️ ÖNEMLİ: QR kod 20 saniyede bir yenilenir! Hızlı okutun!
+                                </p>
+                                <p style="margin: 10px 0 0 0; color: rgba(243, 156, 18, 0.9); font-size: 0.85em;">
+                                    💡 "Cihaz bağlanamadı" hatası alırsanız, QR kod yenilenecek. Lütfen bekleyin ve yeni QR kodu okutun.
                                 </p>
                             </div>
-                            <button onclick="location.reload()" class="btn-modern btn-primary" style="margin-top: 10px;">
-                                🔄 Durumu Yenile
-                            </button>
+                            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
+                                <button onclick="location.reload()" class="btn-modern btn-primary" style="flex: 1;">
+                                    🔄 Durumu Yenile
+                                </button>
+                                <button onclick="fetch('${API_URL}/api/whatsapp-restart', {method: 'POST'}).then(() => location.reload())" class="btn-modern" style="flex: 1; background: rgba(231, 76, 60, 0.3); border-color: #e74c3c; color: #e74c3c;">
+                                    🔄 Servisi Yeniden Başlat
+                                </button>
+                            </div>
                         </div>
                     `);
+                    
+                    // QR kod otomatik yenileme (20 saniye sonra)
+                    setTimeout(() => {
+                        if (document.getElementById('modalOverlay') && document.getElementById('modalOverlay').style.display !== 'none') {
+                            whatsappQrButton.click(); // QR kod yenile
+                        }
+                    }, 20000);
                 } else if (data.message && data.message.includes('zaten bağlı')) {
                     openModal('📱 WhatsApp Durumu', `
                         <div style="text-align: center; padding: 20px;">
@@ -1063,12 +1092,27 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     `);
                 } else {
+                    const errorInfo = data.error ? `<div style="background: rgba(231, 76, 60, 0.2); border: 1px solid #e74c3c; border-radius: 10px; padding: 15px; margin: 15px 0;"><p style="margin: 0; color: #e74c3c; font-size: 0.9em;">Hata: ${data.error}</p></div>` : '';
                     openModal('📱 WhatsApp QR Kod', `
                         <div style="text-align: center; padding: 20px;">
                             <p style="color: #FF1744; font-size: 1.1em; margin-bottom: 15px;">${data.message || 'QR kod alınamadı.'}</p>
-                            <button onclick="location.reload()" class="btn-modern btn-primary" style="margin-top: 15px;">
-                                🔄 Yeniden Dene
-                            </button>
+                            ${errorInfo}
+                            <div style="background: rgba(52, 73, 94, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 20px; margin: 20px 0; text-align: left;">
+                                <h4 style="margin: 0 0 15px 0; color: #ffffff;">💡 Çözüm Önerileri:</h4>
+                                <ul style="margin: 0; padding-left: 20px; color: rgba(255, 255, 255, 0.9); line-height: 1.8;">
+                                    <li>Birkaç saniye bekleyip tekrar deneyin</li>
+                                    <li>WhatsApp servisinin çalıştığından emin olun</li>
+                                    <li>Servisi yeniden başlatmayı deneyin</li>
+                                </ul>
+                            </div>
+                            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
+                                <button onclick="location.reload()" class="btn-modern btn-primary" style="flex: 1;">
+                                    🔄 Yeniden Dene
+                                </button>
+                                <button onclick="fetch('${API_URL}/api/whatsapp-restart', {method: 'POST'}).then(() => location.reload())" class="btn-modern" style="flex: 1; background: rgba(231, 76, 60, 0.3); border-color: #e74c3c; color: #e74c3c;">
+                                    🔄 Servisi Yeniden Başlat
+                                </button>
+                            </div>
                         </div>
                     `);
                 }

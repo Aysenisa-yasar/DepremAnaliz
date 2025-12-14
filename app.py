@@ -1415,10 +1415,10 @@ def check_for_big_earthquakes():
         time.sleep(60) 
 
         try:
-            response = requests.get(KANDILLI_API, timeout=5)
-            response.raise_for_status() 
-            earthquakes = response.json().get('result', [])
-        except requests.exceptions.RequestException:
+            earthquakes = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=20)
+            if not earthquakes:
+                continue
+        except Exception:
             continue
         
         # İstanbul erken uyarı kontrolü

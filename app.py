@@ -404,6 +404,20 @@ TURKEY_CITIES = {
 
 # --- YARDIMCI FONKSİYONLAR ---
 
+def clean_phone_number(number):
+    """ Telefon numarasındaki boşluk, tire, parantez gibi karakterleri temizler.
+    Returns: Temizlenmiş numara (örnek: +905456246352) """
+    if not number:
+        return ""
+    # Tüm boşluk, tire, parantez ve diğer özel karakterleri kaldır
+    cleaned = ''.join(char for char in number if char.isdigit() or char == '+')
+    # Eğer + ile başlamıyorsa ve 0 ile başlıyorsa, 0'ı kaldır ve + ekle
+    if not cleaned.startswith('+'):
+        cleaned = cleaned.lstrip('0')
+        if cleaned:
+            cleaned = '+' + cleaned
+    return cleaned
+
 def send_whatsapp_notification(recipient_number, body, location_url=None):
     """ Twilio üzerinden WhatsApp mesajı gönderir. Konum linki eklenebilir. 
     Returns: (success: bool, error_message: str or None) """
@@ -427,9 +441,13 @@ def send_whatsapp_notification(recipient_number, body, location_url=None):
         # Client, Ortam Değişkenlerinden alınan SID ve Token ile başlatılır
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         
-        # Numara formatını düzelt (ülke kodu ile başlamalı)
-        if not recipient_number.startswith('+'):
-            recipient_number = '+' + recipient_number.lstrip('0')
+        # Numara formatını temizle (boşluk, tire vb. karakterleri kaldır)
+        recipient_number = clean_phone_number(recipient_number)
+        
+        if not recipient_number or not recipient_number.startswith('+'):
+            error_msg = f"Geçersiz telefon numarası formatı. Numara ülke kodu ile başlamalı (örnek: +905551234567). Alınan: {recipient_number}"
+            print(f"[ERROR] {error_msg}")
+            return False, error_msg
         
         whatsapp_number = f"whatsapp:{recipient_number}"
         
@@ -2071,9 +2089,11 @@ def check_user():
         if not number:
             return jsonify({"status": "error", "message": "Telefon numarası gereklidir."}), 400
         
-        # Numara formatını düzelt
-        if not number.startswith('+'):
-            number = '+' + number.lstrip('0')
+        # Numara formatını temizle (boşluk, tire vb. karakterleri kaldır)
+        number = clean_phone_number(number)
+        
+        if not number or not number.startswith('+'):
+            return jsonify({"status": "error", "message": "Telefon numarası ülke kodu ile (+XX) başlamalıdır. Örnek: +905551234567"}), 400
         
         # Kullanıcı verilerini yükle
         user_alerts = load_user_alerts()
@@ -2216,12 +2236,15 @@ def set_alert_settings():
         if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
             return jsonify({"status": "error", "message": "Geçersiz koordinatlar."}), 400
         
-        number = data.get('number', '').strip() 
+        number = data.get('number', '').strip()
         
         if not number:
             return jsonify({"status": "error", "message": "Telefon numarası gereklidir."}), 400
         
-        if not number.startswith('+'):
+        # Numara formatını temizle (boşluk, tire vb. karakterleri kaldır)
+        number = clean_phone_number(number)
+        
+        if not number or not number.startswith('+'):
             return jsonify({"status": "error", "message": "Telefon numarası ülke kodu ile (+XX) başlamalıdır. Örnek: +90532xxxxxxx"}), 400
         
         # Konum bilgisini kalıcı hafızaya kaydet
@@ -2278,7 +2301,10 @@ def set_istanbul_alert():
         if not number:
             return jsonify({"status": "error", "message": "Telefon numarası gereklidir."}), 400
         
-        if not number.startswith('+'):
+        # Numara formatını temizle (boşluk, tire vb. karakterleri kaldır)
+        number = clean_phone_number(number)
+        
+        if not number or not number.startswith('+'):
             return jsonify({"status": "error", "message": "Telefon numarası ülke kodu ile (+XX) başlamalıdır. Örnek: +90532xxxxxxx"}), 400
         
         # İstanbul koordinatları (varsayılan olarak İstanbul merkez)

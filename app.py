@@ -546,8 +546,59 @@ def extract_features(earthquakes, target_lat, target_lon, time_window_hours=24):
                     'timestamp': eq.get('timestamp', time.time())
                 })
     
+    # Veri yoksa bile temel özellikler döndür (fay hattı mesafesi, genel aktivite vb.)
     if len(recent_eqs) == 0:
-        return None
+        # Tüm depremleri kontrol et (mesafe filtresi olmadan)
+        all_eqs = []
+        for eq in earthquakes:
+            if eq.get('geojson') and eq['geojson'].get('coordinates'):
+                lon, lat = eq['geojson']['coordinates']
+                mag = eq.get('mag', 0)
+                distance = haversine(target_lat, target_lon, lat, lon)
+                if mag >= 2.0:
+                    all_eqs.append({
+                        'mag': mag,
+                        'distance': distance,
+                        'depth': eq.get('depth', 10),
+                        'lat': lat,
+                        'lon': lon,
+                        'timestamp': eq.get('timestamp', time.time())
+                    })
+        
+        # Eğer hiç deprem yoksa bile temel özellikler döndür
+        if len(all_eqs) == 0:
+            # Sadece fay hattı mesafesi ve genel bilgiler
+            nearest_fault_distance = float('inf')
+            for fault in TURKEY_FAULT_LINES:
+                for coord in fault['coords']:
+                    fault_lat, fault_lon = coord
+                    dist = haversine(target_lat, target_lon, fault_lat, fault_lon)
+                    nearest_fault_distance = min(nearest_fault_distance, dist)
+            
+            return {
+                'count': 0,
+                'max_magnitude': 0,
+                'mean_magnitude': 0,
+                'std_magnitude': 0,
+                'min_distance': 300,
+                'mean_distance': 300,
+                'mean_depth': 10,
+                'mean_interval': 3600,
+                'min_interval': 3600,
+                'mag_above_4': 0,
+                'mag_above_5': 0,
+                'mag_above_6': 0,
+                'within_50km': 0,
+                'within_100km': 0,
+                'within_150km': 0,
+                'nearest_fault_distance': nearest_fault_distance,
+                'activity_density': 0,
+                'magnitude_distance_ratio': 0,
+                'magnitude_trend': 0
+            }
+        
+        # Tüm depremleri kullan (mesafe filtresi yok)
+        recent_eqs = all_eqs
     
     # Temel istatistikler
     magnitudes = [eq['mag'] for eq in recent_eqs]
@@ -711,11 +762,12 @@ def predict_risk_with_ml(earthquakes, target_lat, target_lon):
     """
     Gelişmiş ML modeli ile risk tahmini yapar.
     """
-    # Özellik çıkarımı
+    # Özellik çıkarımı (artık her zaman özellik döndürür, None döndürmez)
     features = extract_features(earthquakes, target_lat, target_lon)
     
     if features is None:
-        return {"risk_level": "Düşük", "risk_score": 2.0, "method": "fallback", "reason": "Yeterli veri yok"}
+        # Bu durumda geleneksel yönteme fallback
+        return predict_earthquake_risk(earthquakes, target_lat, target_lon)
     
     # Model yükle
     try:
@@ -1274,55 +1326,122 @@ def estimate_damage():
 @app.route('/api/predict-risk', methods=['POST'])
 def predict_risk():
     """ Belirli bir konum için gelişmiş ML destekli deprem risk tahmini yapar. """
-    data = request.get_json()
-    lat = float(data.get('lat'))
-    lon = float(data.get('lon'))
-    use_ml = data.get('use_ml', True)  # ML kullanımı (varsayılan: True)
-    
     try:
-        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
-        if not earthquake_data:
-            return jsonify({"error": "API'den veri alınamadı."}), 500
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Geçersiz istek. JSON verisi bekleniyor."}), 400
+        
+        lat = float(data.get('lat', 0))
+        lon = float(data.get('lon', 0))
+        
+        # Koordinat kontrolü
+        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            return jsonify({"error": "Geçersiz koordinatlar. Enlem: -90 ile 90, Boylam: -180 ile 180 arasında olmalı."}), 400
+        
+        use_ml = data.get('use_ml', True)  # ML kullanımı (varsayılan: True)
+        
+        # Deprem verilerini çek
+        try:
+            earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+            if not earthquake_data:
+                # Veri yoksa bile temel risk analizi yap (fay hattı mesafesi vb.)
+                earthquake_data = []
+        except Exception as e:
+            print(f"[WARNING] API'den veri çekilemedi: {e}")
+            earthquake_data = []  # Boş liste ile devam et
+        
+        # Gelişmiş ML modeli ile tahmin
+        try:
+            if use_ml:
+                prediction = predict_risk_with_ml(earthquake_data, lat, lon)
+                # Anomali tespiti ekle
+                try:
+                    anomaly = detect_anomalies(earthquake_data, lat, lon)
+                    prediction['anomaly'] = anomaly
+                except Exception as e:
+                    print(f"[WARNING] Anomali tespiti başarısız: {e}")
+                    prediction['anomaly'] = {"anomaly_detected": False, "anomaly_score": 0.0}
+            else:
+                # Eski yöntem (fallback)
+                prediction = predict_earthquake_risk(earthquake_data, lat, lon)
+                prediction['method'] = 'traditional'
+            
+            # Method kontrolü
+            if 'method' not in prediction:
+                prediction['method'] = 'ml_ensemble' if use_ml else 'traditional'
+            
+            return jsonify(prediction)
+            
+        except Exception as e:
+            print(f"[ERROR] Risk tahmini hatası: {e}")
+            # Son çare: Basit risk analizi
+            try:
+                prediction = predict_earthquake_risk(earthquake_data, lat, lon)
+                prediction['method'] = 'fallback'
+                prediction['warning'] = 'Gelişmiş analiz başarısız, temel analiz kullanıldı'
+                return jsonify(prediction)
+            except Exception as e2:
+                print(f"[ERROR] Fallback risk tahmini de başarısız: {e2}")
+                return jsonify({
+                    "error": "Risk analizi yapılamadı",
+                    "risk_level": "Bilinmiyor",
+                    "risk_score": 0,
+                    "method": "error",
+                    "message": str(e2)
+                }), 500
+                
+    except ValueError as e:
+        return jsonify({"error": f"Geçersiz veri formatı: {str(e)}"}), 400
     except Exception as e:
-        return jsonify({"error": f"Veri kaynağına erişilemedi: {str(e)}"}), 500
-    
-    # Gelişmiş ML modeli ile tahmin
-    if use_ml:
-        prediction = predict_risk_with_ml(earthquake_data, lat, lon)
-        # Anomali tespiti ekle
-        anomaly = detect_anomalies(earthquake_data, lat, lon)
-        prediction['anomaly'] = anomaly
-    else:
-        # Eski yöntem (fallback)
-        prediction = predict_earthquake_risk(earthquake_data, lat, lon)
-        prediction['method'] = 'traditional'
-    
-    return jsonify(prediction)
+        print(f"[ERROR] Beklenmeyen hata: {e}")
+        return jsonify({"error": f"Sunucu hatası: {str(e)}"}), 500
 
 @app.route('/api/istanbul-early-warning', methods=['GET'])
 def istanbul_early_warning():
     """ İstanbul için özel erken uyarı sistemi. """
     try:
-        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
-        if not earthquake_data:
+        try:
+            earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+            if not earthquake_data:
+                return jsonify({
+                    "alert_level": "BİLGİ YOK",
+                    "alert_score": 0.0,
+                    "message": "API'den veri alınamadı.",
+                    "recent_earthquakes": 0,
+                    "anomaly_detected": False
+                })
+        except Exception as e:
+            print(f"[WARNING] API'den veri çekilemedi: {e}")
             return jsonify({
                 "alert_level": "BİLGİ YOK",
                 "alert_score": 0.0,
-                "message": "API'den veri alınamadı.",
+                "message": f"Veri kaynağına erişilemedi: {str(e)}",
                 "recent_earthquakes": 0,
                 "anomaly_detected": False
             })
+        
+        try:
+            warning = istanbul_early_warning_system(earthquake_data)
+            return jsonify(warning)
+        except Exception as e:
+            print(f"[ERROR] İstanbul erken uyarı sistemi hatası: {e}")
+            return jsonify({
+                "alert_level": "HATA",
+                "alert_score": 0.0,
+                "message": f"Erken uyarı sistemi hatası: {str(e)}",
+                "recent_earthquakes": 0,
+                "anomaly_detected": False
+            }), 500
+            
     except Exception as e:
+        print(f"[ERROR] Beklenmeyen hata: {e}")
         return jsonify({
-            "alert_level": "BİLGİ YOK",
+            "alert_level": "HATA",
             "alert_score": 0.0,
-            "message": f"Veri kaynağına erişilemedi: {str(e)}",
+            "message": f"Sunucu hatası: {str(e)}",
             "recent_earthquakes": 0,
             "anomaly_detected": False
-        })
-    
-    warning = istanbul_early_warning_system(earthquake_data)
-    return jsonify(warning)
+        }), 500
 
 @app.route('/api/train-models', methods=['POST'])
 def train_models():
@@ -1355,27 +1474,51 @@ def train_models():
 @app.route('/api/anomaly-detection', methods=['POST'])
 def anomaly_detection():
     """ Anomali tespiti yapar. """
-    data = request.get_json()
-    lat = float(data.get('lat'))
-    lon = float(data.get('lon'))
-    
     try:
-        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
-        if not earthquake_data:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Geçersiz istek. JSON verisi bekleniyor."}), 400
+        
+        try:
+            lat = float(data.get('lat', 0))
+            lon = float(data.get('lon', 0))
+        except (ValueError, TypeError):
+            return jsonify({"error": "Geçersiz koordinat formatı."}), 400
+        
+        # Koordinat kontrolü
+        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            return jsonify({"error": "Geçersiz koordinatlar."}), 400
+        
+        try:
+            earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+            if not earthquake_data:
+                return jsonify({
+                    "anomaly_detected": False,
+                    "anomaly_score": 0.0,
+                    "message": "API'den veri alınamadı."
+                })
+        except Exception as e:
+            print(f"[WARNING] API'den veri çekilemedi: {e}")
             return jsonify({
                 "anomaly_detected": False,
                 "anomaly_score": 0.0,
-                "message": "API'den veri alınamadı."
+                "message": f"Veri kaynağına erişilemedi: {str(e)}"
             })
+        
+        try:
+            anomaly = detect_anomalies(earthquake_data, lat, lon)
+            return jsonify(anomaly)
+        except Exception as e:
+            print(f"[ERROR] Anomali tespiti hatası: {e}")
+            return jsonify({
+                "anomaly_detected": False,
+                "anomaly_score": 0.0,
+                "message": f"Anomali tespiti başarısız: {str(e)}"
+            }), 500
+            
     except Exception as e:
-        return jsonify({
-            "anomaly_detected": False,
-            "anomaly_score": 0.0,
-            "message": f"Veri kaynağına erişilemedi: {str(e)}"
-        })
-    
-    anomaly = detect_anomalies(earthquake_data, lat, lon)
-    return jsonify(anomaly)
+        print(f"[ERROR] Beklenmeyen hata: {e}")
+        return jsonify({"error": f"Sunucu hatası: {str(e)}"}), 500
 
 @app.route('/api/fault-lines', methods=['GET'])
 def get_fault_lines():
@@ -1391,19 +1534,13 @@ def health_check():
 def city_damage_analysis():
     """ İl bazında risk tahmini: Son depremlere ve aktif fay hatlarına göre. """
     try:
-        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
-        if not earthquake_data:
-            return jsonify({
-                "status": "error",
-                "message": "API'den veri alınamadı.",
-                "city_risks": []
-            })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"Veri kaynağına erişilemedi: {str(e)}",
-            "city_risks": []
-        })
+        try:
+            earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+            if not earthquake_data:
+                earthquake_data = []  # Boş liste ile devam et
+        except Exception as e:
+            print(f"[WARNING] API'den veri çekilemedi: {e}")
+            earthquake_data = []  # Boş liste ile devam et
     
     # Son 24 saatteki tüm depremleri kullan (magnitude filtresi yok)
     recent_earthquakes = []
@@ -1542,48 +1679,114 @@ def city_damage_analysis():
 
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
-    """ Deprem asistanı chatbot endpoint'i. """
-    data = request.get_json()
-    message = data.get('message', '').lower().strip()
-    
-    # Basit rule-based AI
-    responses = {
-        'merhaba': 'Merhaba! Deprem güvenliği ve risk analizi hakkında size nasıl yardımcı olabilirim?',
-        'selam': 'Selam! Depremler, güvenlik önlemleri ve risk analizi hakkında sorularınızı yanıtlayabilirim.',
-        'risk': 'Risk analizi için haritadaki "Risk Analizi" bölümünü kullanabilirsiniz. Ayrıca konumunuzu girerek kişisel risk tahmini yapabilirsiniz.',
-        'deprem': 'Depremler hakkında bilgi almak için haritadaki "Son Depremler" bölümüne bakabilirsiniz. Ayrıca İstanbul için erken uyarı sistemi mevcuttur.',
-        'güvenlik': 'Deprem sırasında: Çök, Kapan, Tutun. Güvenli bir yere sığının. Deprem sonrası: Gaz, elektrik ve su vanalarını kapatın. Açık alanlara çıkın.',
-        'istanbul': 'İstanbul için özel erken uyarı sistemi mevcuttur. "İstanbul Erken Uyarı" bölümünden kontrol edebilirsiniz.',
-        'fay hattı': 'Türkiye\'deki aktif fay hatları haritada gösterilmektedir. Kuzey Anadolu Fay Hattı (KAF), Doğu Anadolu Fay Hattı (DAF) ve diğer fay sistemleri görüntülenebilir.',
-        'hasar': '5.0 ve üzeri depremler için otomatik hasar tahmini yapılmaktadır. "İl Bazında Hasar Analizi" bölümünden kontrol edebilirsiniz.',
-        'bildirim': 'WhatsApp bildirimleri için "Bildirim Ayarları" bölümünden telefon numaranızı kaydedebilirsiniz.',
-        'yardım': 'Size nasıl yardımcı olabilirim? Risk analizi, deprem bilgileri, güvenlik önlemleri veya bildirim ayarları hakkında soru sorabilirsiniz.',
-        'nasıl': 'Sistem, Kandilli Rasathanesi verilerini kullanarak gerçek zamanlı deprem analizi yapar. Makine öğrenmesi modelleri ile risk tahmini yapılır.',
-        'teşekkür': 'Rica ederim! Başka bir sorunuz varsa çekinmeyin.',
-        'teşekkürler': 'Rica ederim! Başka bir sorunuz varsa çekinmeyin.',
-    }
-    
-    # Anahtar kelime eşleştirme
-    response_text = None
-    for keyword, response in responses.items():
-        if keyword in message:
-            response_text = response
-            break
-    
-    # Eğer eşleşme yoksa genel yanıt
-    if not response_text:
-        response_text = 'Üzgünüm, bu konuda daha fazla bilgi veremiyorum. Deprem risk analizi, güvenlik önlemleri, İstanbul erken uyarı sistemi veya bildirim ayarları hakkında soru sorabilirsiniz.'
-    
-    return jsonify({"response": response_text})
+    """ Gelişmiş deprem asistanı chatbot endpoint'i. """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"response": "Üzgünüm, mesajınızı anlayamadım. Lütfen tekrar deneyin."}), 400
+        
+        message = data.get('message', '').strip()
+        if not message:
+            return jsonify({"response": "Lütfen bir mesaj yazın."}), 400
+        
+        message_lower = message.lower()
+        
+        # Gelişmiş rule-based AI - Çoklu anahtar kelime desteği
+        responses = {
+            # Selamlama
+            ('merhaba', 'selam', 'hey', 'hi', 'hello'): 'Merhaba! 👋 Ben deprem asistanınız. Deprem güvenliği, risk analizi ve erken uyarı sistemi hakkında size yardımcı olabilirim. Nasıl yardımcı olabilirim?',
+            
+            # Risk analizi
+            ('risk', 'risk analizi', 'risk tahmini', 'tehlike', 'güvenli mi'): '🔍 Risk analizi için:\n• Haritadaki "Risk Analizi" bölümünü kullanabilirsiniz\n• "Konumum İçin Risk Tahmini Yap" butonu ile kişisel analiz yapabilirsiniz\n• "İl Bazında Risk Analizi" ile tüm illerin risk durumunu görebilirsiniz\n\nSistem son depremlere ve aktif fay hatlarına göre analiz yapar.',
+            
+            # Deprem bilgileri
+            ('deprem', 'depremler', 'son deprem', 'deprem listesi', 'deprem haritası'): '📊 Deprem bilgileri için:\n• "Son 1 Gün Depremler & Aktif Fay Hatları" haritasından son depremleri görebilirsiniz\n• Haritada deprem büyüklüğü, konum ve tarih bilgileri görüntülenir\n• İstanbul için özel erken uyarı sistemi mevcuttur',
+            
+            # Güvenlik
+            ('güvenlik', 'güvenli', 'ne yapmalı', 'nasıl korunur', 'önlem', 'hazırlık', 'deprem sırasında', 'deprem öncesi', 'deprem sonrası'): '🛡️ DEPREM GÜVENLİĞİ:\n\n📌 DEPREM ÖNCESİ:\n• Acil durum çantası hazırlayın\n• Aile acil durum planı yapın\n• Güvenli yerleri belirleyin\n• Mobilyaları sabitleyin\n\n📌 DEPREM SIRASINDA:\n• ÇÖK: Yere çökün\n• KAPAN: Başınızı ve boynunuzu koruyun\n• TUTUN: Sağlam bir yere tutunun\n• Pencerelerden, dolaplardan uzak durun\n\n📌 DEPREM SONRASI:\n• Gaz, elektrik ve su vanalarını kapatın\n• Açık alanlara çıkın\n• Binalara girmeyin\n• Acil durum çantanızı alın',
+            
+            # İstanbul
+            ('istanbul', 'istanbul uyarı', 'istanbul erken uyarı', 'istanbul risk'): '🏛️ İSTANBUL ERKEN UYARI SİSTEMİ:\n• İstanbul için özel gelişmiş yapay zeka destekli erken uyarı sistemi\n• "İstanbul Erken Uyarı Durumunu Kontrol Et" butonundan kontrol edebilirsiniz\n• Sistem deprem öncesi sinyalleri tespit ederek önceden uyarı verir\n• Uyarı seviyeleri: KRİTİK, YÜKSEK, ORTA, DÜŞÜK',
+            
+            # Fay hatları
+            ('fay', 'fay hattı', 'fay hatları', 'kaf', 'daf', 'aktif fay'): '🗺️ TÜRKİYE AKTİF FAY HATLARI:\n• Kuzey Anadolu Fay Hattı (KAF)\n• Doğu Anadolu Fay Hattı (DAF)\n• Ege Graben Sistemi\n• Batı Anadolu Fay Sistemi\n\nHaritada "Son 1 Gün Depremler & Aktif Fay Hatları" bölümünden tüm fay hatlarını görebilirsiniz.',
+            
+            # Hasar tahmini
+            ('hasar', 'hasar tahmini', 'hasar analizi', 'yıkım', 'zarar'): '🏙️ HASAR TAHMİNİ:\n• "İl Bazında Risk Analizi" bölümünden tüm illerin risk durumunu görebilirsiniz\n• Sistem son depremlere ve fay hatlarına yakınlığa göre analiz yapar\n• Her il için risk skoru, seviye ve detaylı faktörler gösterilir',
+            
+            # Bildirim
+            ('bildirim', 'uyarı', 'whatsapp', 'mesaj', 'sms', 'alarm'): '📱 WHATSAPP BİLDİRİMLERİ:\n• "Acil Durum WhatsApp Bildirim Ayarları" bölümünden ayarlayabilirsiniz\n• Konumunuzu belirleyin\n• WhatsApp numaranızı girin (ülke kodu ile: +90...)\n• M ≥ 5.0 depremlerde 150 km içindeyse otomatik bildirim alırsınız',
+            
+            # Yardım
+            ('yardım', 'help', 'nasıl kullanılır', 'kullanım', 'ne yapabilirsin'): '💡 NASIL KULLANILIR:\n\n1️⃣ Risk Analizi: Konumunuzu belirleyip risk tahmini yapın\n2️⃣ Deprem Haritası: Son depremleri ve fay hatlarını görüntüleyin\n3️⃣ İl Bazında Analiz: Tüm illerin risk durumunu kontrol edin\n4️⃣ İstanbul Uyarı: İstanbul için erken uyarı durumunu kontrol edin\n5️⃣ Bildirimler: WhatsApp bildirimlerini aktifleştirin\n\nBaşka bir sorunuz varsa sorabilirsiniz!',
+            
+            # Sistem bilgisi
+            ('nasıl çalışır', 'sistem', 'yapay zeka', 'ml', 'makine öğrenmesi', 'algoritma'): '🤖 SİSTEM NASIL ÇALIŞIR:\n• Kandilli Rasathanesi verilerini kullanır\n• Gerçek zamanlı deprem analizi yapar\n• Makine öğrenmesi modelleri (Random Forest, XGBoost, LightGBM) ile risk tahmini\n• Anomali tespiti ile olağandışı aktivite tespit eder\n• Aktif fay hatlarına yakınlık analizi\n• Ensemble model ile yüksek doğruluk',
+            
+            # Teşekkür
+            ('teşekkür', 'teşekkürler', 'sağol', 'sağolun', 'thanks', 'thank you'): 'Rica ederim! 😊 Başka bir sorunuz varsa çekinmeyin. Deprem güvenliğiniz için her zaman buradayım!',
+            
+            # Genel bilgi
+            ('kandilli', 'veri', 'kaynak', 'nereden'): '📡 VERİ KAYNAĞI:\n• Kandilli Rasathanesi ve Deprem Araştırma Enstitüsü\n• Gerçek zamanlı deprem verileri\n• API: api.orhanaydogdu.com.tr\n• Veriler sürekli güncellenir',
+        }
+        
+        # Çoklu anahtar kelime eşleştirme
+        response_text = None
+        matched_keywords = []
+        
+        for keywords, response in responses.items():
+            for keyword in keywords:
+                if keyword in message_lower:
+                    response_text = response
+                    matched_keywords.append(keyword)
+                    break
+            if response_text:
+                break
+        
+        # Eğer eşleşme yoksa, benzer kelimeleri kontrol et
+        if not response_text:
+            # Kısmi eşleşme
+            similar_patterns = {
+                'risk': responses[('risk', 'risk analizi', 'risk tahmini', 'tehlike', 'güvenli mi')],
+                'deprem': responses[('deprem', 'depremler', 'son deprem', 'deprem listesi', 'deprem haritası')],
+                'güven': responses[('güvenlik', 'güvenli', 'ne yapmalı', 'nasıl korunur', 'önlem', 'hazırlık', 'deprem sırasında', 'deprem öncesi', 'deprem sonrası')],
+            }
+            
+            for pattern, response in similar_patterns.items():
+                if pattern in message_lower:
+                    response_text = response
+                    break
+        
+        # Son çare: Genel yanıt
+        if not response_text:
+            response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum. Size şunlar hakkında yardımcı olabilirim:\n\n• 🔍 Risk analizi ve tahmini\n• 📊 Deprem bilgileri ve haritalar\n• 🛡️ Güvenlik önlemleri\n• 🏛️ İstanbul erken uyarı sistemi\n• 📱 WhatsApp bildirimleri\n• 🗺️ Fay hatları\n\nLütfen bu konulardan birini sorun!'
+        
+        return jsonify({"response": response_text})
+        
+    except Exception as e:
+        print(f"[ERROR] Chatbot hatası: {e}")
+        return jsonify({"response": "Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin."}), 500
 
 @app.route('/api/set-alert', methods=['POST'])
 def set_alert_settings():
     """ Kullanıcının konumunu ve bildirim telefon numarasını kaydeder ve onay mesajı gönderir. """
-    global user_alerts
-    data = request.get_json()
-    lat = float(data.get('lat'))
-    lon = float(data.get('lon'))
-    number = data.get('number') 
+    try:
+        global user_alerts
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "Geçersiz istek. JSON verisi bekleniyor."}), 400
+        
+        try:
+            lat = float(data.get('lat', 0))
+            lon = float(data.get('lon', 0))
+        except (ValueError, TypeError):
+            return jsonify({"status": "error", "message": "Geçersiz koordinat formatı."}), 400
+        
+        # Koordinat kontrolü
+        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            return jsonify({"status": "error", "message": "Geçersiz koordinatlar."}), 400
+        
+        number = data.get('number', '').strip() 
     
     if not lat or not lon or not number:
         return jsonify({"status": "error", "message": "Eksik konum veya telefon numarası bilgisi."}), 400

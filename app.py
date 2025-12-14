@@ -2052,6 +2052,54 @@ def city_damage_analysis():
             "city_risks": []
         }), 500
 
+@app.route('/api/check-user', methods=['POST'])
+def check_user():
+    """ Kullanıcının sisteme kayıtlı olup olmadığını kontrol eder. """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "Geçersiz istek. JSON verisi bekleniyor."}), 400
+        
+        number = data.get('number', '').strip()
+        if not number:
+            return jsonify({"status": "error", "message": "Telefon numarası gereklidir."}), 400
+        
+        # Numara formatını düzelt
+        if not number.startswith('+'):
+            number = '+' + number.lstrip('0')
+        
+        # Kullanıcı verilerini yükle
+        user_alerts = load_user_alerts()
+        
+        # Kayıt kontrolü
+        if number in user_alerts:
+            user_data = user_alerts[number]
+            return jsonify({
+                "status": "success",
+                "registered": True,
+                "number": number,
+                "data": {
+                    "lat": user_data.get('lat'),
+                    "lon": user_data.get('lon'),
+                    "istanbul_alert": user_data.get('istanbul_alert', False),
+                    "registered_at": user_data.get('registered_at', 'N/A')
+                }
+            })
+        else:
+            return jsonify({
+                "status": "success",
+                "registered": False,
+                "number": number,
+                "message": "Bu numara sisteme kayıtlı değil."
+            })
+            
+    except Exception as e:
+        print(f"[ERROR] Kullanıcı kontrol hatası: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Kontrol yapılamadı: {str(e)}"
+        }), 500
+
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
     """ Gelişmiş deprem asistanı chatbot endpoint'i. """

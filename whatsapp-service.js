@@ -41,15 +41,17 @@ function initializeWhatsApp() {
     });
 
     // QR Kod oluşturulduğunda
+    let qrRefreshCount = 0;
     client.on('qr', async (qr) => {
-        console.log('[WhatsApp] QR kod oluşturuldu');
+        qrRefreshCount++;
+        console.log(`[WhatsApp] QR kod oluşturuldu (${qrRefreshCount}. kez) - WhatsApp'tan QR kodu okutun!`);
         qrCodeData = qr;
         
         // QR kod'u base64'e çevir
         try {
             const qrImage = await qrcode.toDataURL(qr);
             qrCodeData = qrImage;
-            console.log('[WhatsApp] QR kod hazır');
+            console.log('[WhatsApp] QR kod hazır - 20 saniye içinde okutun!');
         } catch (err) {
             console.error('[WhatsApp] QR kod oluşturma hatası:', err);
         }

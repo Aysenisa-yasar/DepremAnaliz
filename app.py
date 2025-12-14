@@ -1266,19 +1266,11 @@ def anomaly_detection():
     lon = float(data.get('lon'))
     
     try:
-        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
-        if not earthquake_data:
-            return jsonify({
-                "anomaly_detected": False,
-                "anomaly_score": 0.0,
-                "message": "API'den veri alınamadı."
-            })
-    except Exception as e:
-        return jsonify({
-            "anomaly_detected": False,
-            "anomaly_score": 0.0,
-            "message": f"Veri kaynağına erişilemedi: {str(e)}"
-        })
+        response = requests.get(KANDILLI_API, timeout=10)
+        response.raise_for_status() 
+        earthquake_data = response.json().get('result', [])
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
     
     anomaly = detect_anomalies(earthquake_data, lat, lon)
     return jsonify(anomaly)

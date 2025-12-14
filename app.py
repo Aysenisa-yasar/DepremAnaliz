@@ -732,7 +732,8 @@ def predict_risk_with_ml(earthquakes, target_lat, target_lon):
                 models = model_data
                 weights = {'random_forest': 0.4, 'xgboost': 0.35, 'lightgbm': 0.25}
         else:
-            return {"risk_level": "Düşük", "risk_score": 2.0, "method": "fallback", "reason": "Model eğitilmemiş"}
+            # Model yoksa geleneksel yönteme fallback
+            return predict_earthquake_risk(earthquakes, target_lat, target_lon)
     except Exception as e:
         print(f"Model yüklenemedi: {e}")
         return {"risk_level": "Düşük", "risk_score": 2.0, "method": "fallback", "reason": "Model hatası"}

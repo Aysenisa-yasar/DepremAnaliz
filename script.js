@@ -390,10 +390,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 use_ml: true  // Gelişmiş ML modeli kullan
             }),
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Sunucu hatası: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.error) {
-                riskPredictionResult.innerHTML = `<p style="color: red;">Hata: ${data.error}</p>`;
+                riskPredictionResult.innerHTML = `<p style="color: #FF1744;">Hata: ${data.error}</p>`;
+                return;
+            }
+            
+            // Risk skoru kontrolü
+            if (data.risk_score === undefined) {
+                riskPredictionResult.innerHTML = `<p style="color: #FF1744;">Hata: Geçersiz veri formatı. Sunucu yanıtı beklenmedik formatta.</p>`;
                 return;
             }
             
@@ -403,12 +414,14 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (data.risk_score >= 3.0) riskColor = '#f39c12'; // Sarı
             
             let detailsHtml = '';
-            if (data.method === 'ml_ensemble') {
+            if (data.method === 'ml_ensemble' && data.features) {
                 detailsHtml = `
                     <p style="margin: 5px 0; font-size: 0.9em;"><strong>🤖 ML Model Tahminleri:</strong></p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">Random Forest: ${data.model_predictions.random_forest}/10</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">XGBoost: ${data.model_predictions.xgboost}/10</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">LightGBM: ${data.model_predictions.lightgbm}/10</p>
+                    ${data.model_predictions ? `
+                        <p style="margin: 3px 0; font-size: 0.85em;">Random Forest: ${data.model_predictions.random_forest || 'N/A'}/10</p>
+                        <p style="margin: 3px 0; font-size: 0.85em;">XGBoost: ${data.model_predictions.xgboost || 'N/A'}/10</p>
+                        <p style="margin: 3px 0; font-size: 0.85em;">LightGBM: ${data.model_predictions.lightgbm || 'N/A'}/10</p>
+                    ` : ''}
                     <p style="margin: 10px 0 5px 0; font-size: 0.9em;"><strong>Özellikler:</strong></p>
                     <p style="margin: 3px 0; font-size: 0.85em;">Toplam Deprem: ${data.features.count || 0}</p>
                     <p style="margin: 3px 0; font-size: 0.85em;">Maksimum Büyüklük: M${data.features.max_magnitude?.toFixed(1) || 'N/A'}</p>
@@ -416,25 +429,32 @@ document.addEventListener('DOMContentLoaded', () => {
                     <p style="margin: 3px 0; font-size: 0.85em;">Aktivite Yoğunluğu: ${data.features.activity_density?.toFixed(4) || 'N/A'}</p>
                     ${data.anomaly ? `
                         <p style="margin: 10px 0 5px 0; font-size: 0.9em;"><strong>⚠️ Anomali Tespiti:</strong></p>
-                        <p style="margin: 3px 0; font-size: 0.85em;">Anomali Skoru: ${data.anomaly.anomaly_score}/1.0</p>
+                        <p style="margin: 3px 0; font-size: 0.85em;">Anomali Skoru: ${data.anomaly.anomaly_score || 0}/1.0</p>
                         <p style="margin: 3px 0; font-size: 0.85em;">Tespit Edildi: ${data.anomaly.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</p>
                     ` : ''}
                 `;
-            } else {
+            } else if (data.factors) {
+                // Geleneksel yöntem (fallback)
                 detailsHtml = `
                     <p style="margin: 5px 0; font-size: 0.9em;"><strong>Detaylar:</strong></p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">En Büyük Deprem: M${data.factors.max_magnitude}</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">Son 24 Saatteki Deprem Sayısı: ${data.factors.recent_count}</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">Ortalama Mesafe: ${data.factors.avg_distance} km</p>
-                    <p style="margin: 3px 0; font-size: 0.85em;">En Yakın Fay Hattı: ${data.factors.nearest_fault_km} km</p>
+                    <p style="margin: 3px 0; font-size: 0.85em;">En Büyük Deprem: M${data.factors.max_magnitude || 'N/A'}</p>
+                    <p style="margin: 3px 0; font-size: 0.85em;">Son 24 Saatteki Deprem Sayısı: ${data.factors.recent_count || 0}</p>
+                    <p style="margin: 3px 0; font-size: 0.85em;">Ortalama Mesafe: ${data.factors.avg_distance || 'N/A'} km</p>
+                    <p style="margin: 3px 0; font-size: 0.85em;">En Yakın Fay Hattı: ${data.factors.nearest_fault_km || 'N/A'} km</p>
+                `;
+            } else {
+                // Veri yoksa minimal bilgi göster
+                detailsHtml = `
+                    <p style="margin: 5px 0; font-size: 0.9em;"><strong>Bilgi:</strong></p>
+                    <p style="margin: 3px 0; font-size: 0.85em;">${data.reason || 'Risk analizi tamamlandı.'}</p>
                 `;
             }
             
             riskPredictionResult.innerHTML = `
                 <div style="background-color: ${riskColor}; color: white; padding: 15px; border-radius: 8px;">
-                    <h3 style="margin: 0 0 10px 0;">Risk Seviyesi: ${data.risk_level}</h3>
-                    <p style="margin: 5px 0; font-size: 1.2em;"><strong>Risk Skoru: ${data.risk_score}/10</strong></p>
-                    <p style="margin: 5px 0; font-size: 0.9em;">Yöntem: ${data.method === 'ml_ensemble' ? '🤖 Gelişmiş ML (Ensemble)' : '📊 Geleneksel'}</p>
+                    <h3 style="margin: 0 0 10px 0;">Risk Seviyesi: ${data.risk_level || 'Bilinmiyor'}</h3>
+                    <p style="margin: 5px 0; font-size: 1.2em;"><strong>Risk Skoru: ${data.risk_score || 0}/10</strong></p>
+                    <p style="margin: 5px 0; font-size: 0.9em;">Yöntem: ${data.method === 'ml_ensemble' ? '🤖 Gelişmiş ML (Ensemble)' : (data.method === 'traditional' ? '📊 Geleneksel' : '📊 Standart')}</p>
                     ${data.reason ? `<p style="margin: 10px 0;">${data.reason}</p>` : ''}
                     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.3);">
                         ${detailsHtml}
@@ -444,7 +464,7 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch(error => {
             console.error('Risk tahmini hatası:', error);
-            riskPredictionResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+            riskPredictionResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.<br><small>Hata: ${error.message}</small></p>`;
         });
     });
     

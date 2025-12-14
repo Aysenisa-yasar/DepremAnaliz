@@ -1368,96 +1368,155 @@ def get_fault_lines():
 
 @app.route('/api/city-damage-analysis', methods=['GET'])
 def city_damage_analysis():
-    """ 5+ depremler için il bazında otomatik yapay zeka destekli hasar tahmini yapar. """
+    """ İl bazında risk tahmini: Son depremlere ve aktif fay hatlarına göre. """
     try:
         earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
         if not earthquake_data:
             return jsonify({
-                "status": "no_major_earthquakes",
+                "status": "error",
                 "message": "API'den veri alınamadı.",
-                "city_damages": []
+                "city_risks": []
             })
     except Exception as e:
         return jsonify({
             "status": "error",
             "message": f"Veri kaynağına erişilemedi: {str(e)}",
-            "city_damages": []
+            "city_risks": []
         })
     
-    # 5+ depremleri filtrele
-    major_earthquakes = [eq for eq in earthquake_data if eq.get('mag', 0) >= 5.0]
+    # Son 24 saatteki tüm depremleri kullan (magnitude filtresi yok)
+    recent_earthquakes = []
+    current_time = time.time()
     
-    if not major_earthquakes:
-        return jsonify({
-            "status": "no_major_earthquakes",
-            "message": "Son 24 saatte 5.0 ve üzeri deprem tespit edilmedi.",
-            "city_damages": []
-        })
-    
-    city_damages = {}
-    
-    # Her büyük deprem için
-    for eq in major_earthquakes:
+    for eq in earthquake_data:
         if not eq.get('geojson') or not eq['geojson'].get('coordinates'):
             continue
-            
-        lon_eq, lat_eq = eq['geojson']['coordinates']
-        magnitude = eq.get('mag', 0)
-        depth = eq.get('depth', 10)
+        # Son 24 saat içindeki depremler
+        eq_time_str = f"{eq.get('date', '')} {eq.get('time', '')}"
+        recent_earthquakes.append(eq)
+    
+    city_risks = {}
+    
+    # Her il için risk hesapla
+    for city_name, city_data in TURKEY_CITIES.items():
+        city_lat = city_data['lat']
+        city_lon = city_data['lon']
         
-        # Her il için mesafe ve hasar tahmini yap
-        for city_name, city_data in TURKEY_CITIES.items():
-            city_lat = city_data['lat']
-            city_lon = city_data['lon']
+        # 1. Son depremlere yakınlık analizi
+        earthquake_risk_score = 0.0
+        earthquake_count = 0
+        nearest_earthquake_distance = float('inf')
+        max_nearby_magnitude = 0.0
+        affecting_earthquakes = []
+        
+        for eq in recent_earthquakes:
+            lon_eq, lat_eq = eq['geojson']['coordinates']
+            magnitude = eq.get('mag', 0)
+            depth = eq.get('depth', 10)
             distance = haversine(lat_eq, lon_eq, city_lat, city_lon)
             
-            # 300 km içindeki illeri analiz et
-            if distance <= 300:
-                building_structure = city_data['building_structure']
+            # 200 km içindeki depremleri analiz et
+            if distance <= 200:
+                earthquake_count += 1
+                nearest_earthquake_distance = min(nearest_earthquake_distance, distance)
+                max_nearby_magnitude = max(max_nearby_magnitude, magnitude)
                 
-                # Yapay zeka destekli hasar tahmini
-                damage_info = ai_damage_estimate(magnitude, depth, distance, building_structure)
+                # Mesafe ve büyüklüğe göre risk skoru
+                distance_factor = max(0, (200 - distance) / 200)  # 0-1 arası
+                magnitude_factor = min(1.0, magnitude / 7.0)  # M7.0 = max
+                risk_contribution = distance_factor * magnitude_factor * 30  # Max 30 puan
+                earthquake_risk_score += risk_contribution
                 
-                # İl için en yüksek hasar skorunu tut
-                if city_name not in city_damages:
-                    city_damages[city_name] = {
-                        "city": city_name,
-                        "lat": city_lat,
-                        "lon": city_lon,
-                        "max_damage_score": 0,
-                        "damage_level": "Minimal",
-                        "earthquakes_affecting": [],
-                        "building_structure": building_structure
-                    }
-                
-                if damage_info['damage_score'] > city_damages[city_name]['max_damage_score']:
-                    city_damages[city_name]['max_damage_score'] = damage_info['damage_score']
-                    city_damages[city_name]['damage_level'] = damage_info['level']
-                    city_damages[city_name]['description'] = damage_info['description']
-                    city_damages[city_name]['affected_buildings'] = damage_info['affected_buildings_percent']
-                
-                # Etkilenen deprem bilgilerini ekle
-                city_damages[city_name]['earthquakes_affecting'].append({
-                    "magnitude": magnitude,
+                affecting_earthquakes.append({
+                    "magnitude": round(magnitude, 1),
                     "distance": round(distance, 1),
                     "depth": depth,
                     "location": eq.get('location', 'Bilinmiyor'),
                     "date": eq.get('date', ''),
                     "time": eq.get('time', '')
                 })
+        
+        # 2. Aktif fay hatlarına yakınlık analizi
+        fault_risk_score = 0.0
+        nearest_fault_distance = float('inf')
+        nearest_fault_name = None
+        
+        for fault in TURKEY_FAULT_LINES:
+            for coord in fault['coords']:
+                fault_lat, fault_lon = coord
+                dist = haversine(city_lat, city_lon, fault_lat, fault_lon)
+                nearest_fault_distance = min(nearest_fault_distance, dist)
+                if nearest_fault_distance == dist:
+                    nearest_fault_name = fault['name']
+        
+        # Fay hattı yakınlığına göre risk (0-40 puan)
+        if nearest_fault_distance < 20:
+            fault_risk_score = 40  # Çok yakın
+        elif nearest_fault_distance < 50:
+            fault_risk_score = 30  # Yakın
+        elif nearest_fault_distance < 100:
+            fault_risk_score = 20  # Orta mesafe
+        elif nearest_fault_distance < 150:
+            fault_risk_score = 10  # Uzak
+        else:
+            fault_risk_score = 0  # Çok uzak
+        
+        # 3. Deprem aktivitesi yoğunluğu (0-30 puan)
+        activity_score = min(30, earthquake_count * 2)  # Her deprem 2 puan, max 30
+        
+        # 4. Toplam risk skoru (0-100)
+        total_risk_score = min(100, earthquake_risk_score + fault_risk_score + activity_score)
+        
+        # Risk seviyesi belirleme
+        if total_risk_score >= 70:
+            risk_level = "Çok Yüksek"
+            risk_description = f"{city_name} için çok yüksek deprem riski tespit edildi. Yakın bölgede aktif deprem aktivitesi ve fay hatlarına yakınlık nedeniyle dikkatli olunmalı."
+        elif total_risk_score >= 50:
+            risk_level = "Yüksek"
+            risk_description = f"{city_name} için yüksek deprem riski var. Son depremler ve fay hatlarına yakınlık nedeniyle hazırlıklı olunmalı."
+        elif total_risk_score >= 30:
+            risk_level = "Orta"
+            risk_description = f"{city_name} için orta seviye deprem riski var. Son deprem aktivitesi ve fay hatlarına mesafe dikkate alınmalı."
+        elif total_risk_score >= 15:
+            risk_level = "Düşük"
+            risk_description = f"{city_name} için düşük deprem riski. Genel deprem hazırlığı önerilir."
+        else:
+            risk_level = "Minimal"
+            risk_description = f"{city_name} için minimal deprem riski. Genel güvenlik önlemleri yeterli."
+        
+        city_risks[city_name] = {
+            "city": city_name,
+            "lat": city_lat,
+            "lon": city_lon,
+            "risk_score": round(total_risk_score, 1),
+            "risk_level": risk_level,
+            "description": risk_description,
+            "factors": {
+                "earthquake_risk": round(earthquake_risk_score, 1),
+                "fault_risk": round(fault_risk_score, 1),
+                "activity_score": round(activity_score, 1),
+                "nearest_fault_distance": round(nearest_fault_distance, 1),
+                "nearest_fault_name": nearest_fault_name,
+                "earthquake_count": earthquake_count,
+                "max_nearby_magnitude": round(max_nearby_magnitude, 1),
+                "nearest_earthquake_distance": round(nearest_earthquake_distance, 1) if nearest_earthquake_distance != float('inf') else None
+            },
+            "affecting_earthquakes": affecting_earthquakes[:5],  # En yakın 5 deprem
+            "building_structure": city_data['building_structure']
+        }
     
-    # Sıralama: En yüksek hasar skoruna göre
+    # Sıralama: En yüksek risk skoruna göre
     sorted_cities = sorted(
-        city_damages.values(),
-        key=lambda x: x['max_damage_score'],
+        city_risks.values(),
+        key=lambda x: x['risk_score'],
         reverse=True
     )
     
     return jsonify({
         "status": "success",
-        "total_major_earthquakes": len(major_earthquakes),
-        "affected_cities": len(sorted_cities),
-        "city_damages": sorted_cities
+        "total_earthquakes": len(recent_earthquakes),
+        "analyzed_cities": len(sorted_cities),
+        "city_risks": sorted_cities
     })
 
 @app.route('/api/chatbot', methods=['POST'])

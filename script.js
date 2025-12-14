@@ -409,34 +409,39 @@ document.addEventListener('DOMContentLoaded', () => {
                 let html = `
                     <div style="background-color: #34495e; color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
                         <h3 style="margin: 0 0 10px 0;">📊 Analiz Sonuçları</h3>
-                        <p style="margin: 5px 0;">Toplam 5+ Deprem: <strong>${data.total_major_earthquakes}</strong></p>
-                        <p style="margin: 5px 0;">Etkilenen İl Sayısı: <strong>${data.affected_cities}</strong></p>
+                        <p style="margin: 5px 0;">Toplam Deprem: <strong>${data.total_earthquakes}</strong></p>
+                        <p style="margin: 5px 0;">Analiz Edilen İl Sayısı: <strong>${data.analyzed_cities}</strong></p>
+                        <p style="margin: 5px 0; font-size: 0.9em; opacity: 0.9;">📌 Analiz: Son depremler ve aktif fay hatlarına göre risk hesaplandı</p>
                     </div>
                     <div style="max-height: 600px; overflow-y: auto;">
                 `;
                 
-                data.city_damages.forEach((city, index) => {
-                    let levelColor = '#2ecc71'; // Yeşil
-                    if (city.max_damage_score >= 75) levelColor = '#e74c3c'; // Kırmızı
-                    else if (city.max_damage_score >= 55) levelColor = '#e67e22'; // Turuncu
-                    else if (city.max_damage_score >= 35) levelColor = '#f39c12'; // Sarı
-                    else if (city.max_damage_score >= 18) levelColor = '#3498db'; // Mavi
+                data.city_risks.forEach((city, index) => {
+                    let levelColor = '#95a5a6'; // Gri (minimal)
+                    if (city.risk_score >= 70) levelColor = '#e74c3c'; // Kırmızı
+                    else if (city.risk_score >= 50) levelColor = '#e67e22'; // Turuncu
+                    else if (city.risk_score >= 30) levelColor = '#f39c12'; // Sarı
+                    else if (city.risk_score >= 15) levelColor = '#3498db'; // Mavi
                     
                     html += `
                         <div style="background-color: ${levelColor}; color: white; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
                             <h4 style="margin: 0 0 10px 0;">${index + 1}. ${city.city}</h4>
-                            <p style="margin: 5px 0; font-size: 1.2em;"><strong>Hasar Skoru: ${city.max_damage_score.toFixed(1)}/100</strong></p>
-                            <p style="margin: 5px 0;"><strong>Seviye: ${city.damage_level}</strong></p>
+                            <p style="margin: 5px 0; font-size: 1.2em;"><strong>Risk Skoru: ${city.risk_score.toFixed(1)}/100</strong></p>
+                            <p style="margin: 5px 0;"><strong>Seviye: ${city.risk_level}</strong></p>
                             <p style="margin: 10px 0; font-size: 0.9em;">${city.description}</p>
                             <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.3);">
-                                <p style="margin: 5px 0; font-size: 0.85em;"><strong>Etkilenen Binalar (%):</strong></p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">Güçlendirilmiş: %${city.affected_buildings.reinforced}</p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">Normal: %${city.affected_buildings.normal}</p>
-                                <p style="margin: 3px 0; font-size: 0.8em;">Zayıf: %${city.affected_buildings.weak}</p>
-                                <p style="margin: 10px 0 5px 0; font-size: 0.85em;"><strong>Etkilendiği Depremler:</strong></p>
-                                ${city.earthquakes_affecting.map(eq => `
-                                    <p style="margin: 2px 0; font-size: 0.75em;">M${eq.magnitude} - ${eq.location} (${eq.distance} km)</p>
-                                `).join('')}
+                                <p style="margin: 5px 0; font-size: 0.85em;"><strong>📊 Risk Faktörleri:</strong></p>
+                                <p style="margin: 3px 0; font-size: 0.8em;">• Deprem Riski: ${city.factors.earthquake_risk.toFixed(1)} puan</p>
+                                <p style="margin: 3px 0; font-size: 0.8em;">• Fay Hattı Riski: ${city.factors.fault_risk.toFixed(1)} puan</p>
+                                <p style="margin: 3px 0; font-size: 0.8em;">• Aktivite Skoru: ${city.factors.activity_score.toFixed(1)} puan (${city.factors.earthquake_count} deprem)</p>
+                                <p style="margin: 3px 0; font-size: 0.8em;">• En Yakın Fay: ${city.factors.nearest_fault_name || 'Bilinmiyor'} (${city.factors.nearest_fault_distance.toFixed(1)} km)</p>
+                                ${city.factors.nearest_earthquake_distance ? `<p style="margin: 3px 0; font-size: 0.8em;">• En Yakın Deprem: ${city.factors.nearest_earthquake_distance.toFixed(1)} km (M${city.factors.max_nearby_magnitude.toFixed(1)})</p>` : '<p style="margin: 3px 0; font-size: 0.8em;">• En Yakın Deprem: 200 km+ (Etki yok)</p>'}
+                                ${city.affecting_earthquakes && city.affecting_earthquakes.length > 0 ? `
+                                    <p style="margin: 10px 0 5px 0; font-size: 0.85em;"><strong>📍 Etkileyen Depremler:</strong></p>
+                                    ${city.affecting_earthquakes.map(eq => `
+                                        <p style="margin: 2px 0; font-size: 0.75em;">M${eq.magnitude} - ${eq.location} (${eq.distance} km uzaklıkta)</p>
+                                    `).join('')}
+                                ` : ''}
                             </div>
                         </div>
                     `;

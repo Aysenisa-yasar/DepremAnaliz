@@ -71,6 +71,12 @@
                 İstanbul'da deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilir.
                 Uyarı seviyeleri: KRİTİK (0-24 saat), YÜKSEK (24-72 saat), ORTA (1 hafta).
             </p>
+            <div style="margin-bottom: 15px; padding: 10px; background-color: rgba(255, 193, 7, 0.15); border-left: 3px solid #FFC107; border-radius: 5px;">
+                <p style="margin: 0; font-size: 0.85em; color: var(--color-light-text);">
+                    ⚠️ <strong>Önemli:</strong> Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor (ücretsiz). 
+                    <a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">Twilio Console</a> > Messaging > WhatsApp Sandbox sayfasından "join code" ile ekleyebilirsiniz.
+                </p>
+            </div>
             <div style="margin-top: 15px;">
                 <label for="istanbulNumberInput" style="display: block; margin-bottom: 5px; font-weight: 600;">WhatsApp Numarası (Ülke kodu ile, Örn: +90532xxxxxxx):</label>
                 <input type="tel" id="istanbulNumberInput" placeholder="+905xxxxxxxxx" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 23, 68, 0.3); background: rgba(255, 23, 68, 0.1); color: white; font-size: 1em;">
@@ -108,6 +114,26 @@
             <p style="margin-top: 15px; font-style: italic; color: var(--color-light-text); font-size: 0.9em;">
                 * Bildirimler sadece tespit edilen konuma yaklaşık 150 km yakınlıkta M ≥ 5.0 deprem olduğunda gönderilecektir.
             </p>
+            
+            <div style="margin-top: 20px; padding: 15px; background-color: rgba(255, 193, 7, 0.2); border: 2px solid #FFC107; border-radius: 8px;">
+                <h4 style="margin: 0 0 10px 0; color: #FFC107;">📱 WhatsApp Sandbox'a Katılma (ÜCRETSİZ)</h4>
+                <p style="margin: 5px 0; font-size: 0.9em; color: var(--color-light-text);">
+                    <strong>ÖNEMLİ:</strong> Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor. Bu işlem <strong>ücretsizdir</strong> ve sadece bir kez yapılır.
+                </p>
+                <div style="margin-top: 10px; padding: 10px; background-color: rgba(0, 0, 0, 0.3); border-radius: 5px;">
+                    <p style="margin: 5px 0; font-size: 0.85em;"><strong>Adımlar:</strong></p>
+                    <ol style="margin: 5px 0; padding-left: 20px; font-size: 0.85em;">
+                        <li>Twilio Console'a gidin: <a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">console.twilio.com</a></li>
+                        <li><strong>Messaging</strong> > <strong>Try it out</strong> > <strong>Send a WhatsApp message</strong></li>
+                        <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın (örn: <code>join abc-xyz</code>)</li>
+                        <li>WhatsApp'ı açın ve <strong>+1 415 523 8886</strong> numarasına bu kodu gönderin</li>
+                        <li>Onay mesajı gelecek: <strong>"You're all set!"</strong></li>
+                    </ol>
+                </div>
+                <p style="margin: 10px 0 0 0; font-size: 0.8em; color: var(--color-light-text);">
+                    💡 <strong>Not:</strong> Bu işlem sadece bir kez yapılır. Sandbox'a katıldıktan sonra tüm bildirimleri alabilirsiniz!
+                </p>
+            </div>
         </div>
     </div>
 

@@ -351,12 +351,72 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return response.json();
         })
+        .then(data => {
+            if (data.status === 'success') {
+                // Başarı mesajı + Sandbox rehberi
+                locationStatus.innerHTML = `
+                    <div style="background-color: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; color: #2ecc71; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                        <p style="margin: 0; font-weight: 600;">✅ ${data.message}</p>
+                        <div style="margin-top: 15px; padding: 10px; background-color: rgba(255, 193, 7, 0.2); border-radius: 5px;">
+                            <p style="margin: 5px 0; font-size: 0.9em; color: #FFC107;">
+                                ⚠️ <strong>ÖNEMLİ - WhatsApp Sandbox'a Katılın (ÜCRETSİZ):</strong>
+                            </p>
+                            <p style="margin: 5px 0; font-size: 0.85em;">
+                                Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor. Bu işlem <strong>ücretsizdir</strong> ve sadece bir kez yapılır.
+                            </p>
+                            <ol style="margin: 10px 0; padding-left: 20px; font-size: 0.85em;">
+                                <li><a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">Twilio Console</a>'a gidin</li>
+                                <li><strong>Messaging</strong> > <strong>Try it out</strong> > <strong>Send a WhatsApp message</strong></li>
+                                <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın (örn: <code>join abc-xyz</code>)</li>
+                                <li>WhatsApp'tan <strong>+1 415 523 8886</strong> numarasına bu kodu gönderin</li>
+                                <li>Onay mesajı gelecek: <strong>"You're all set!"</strong></li>
+                            </ol>
+                            <p style="margin: 10px 0 0 0; font-size: 0.8em; color: var(--color-light-text);">
+                                💡 Bu işlem sadece bir kez yapılır. Sandbox'a katıldıktan sonra tüm bildirimleri alabilirsiniz!
+                            </p>
+                        </div>
+                    </div>
+                `;
+                numberInput.value = '';
+            } else {
+                locationStatus.innerHTML = `<p style="color: #FF1744;">❌ Hata: ${data.message || 'Bildirim ayarları kaydedilemedi'}</p>`;
+            }
+        })
+        .catch(error => {
+            console.error('Ayarlar kaydedilirken hata:', error);
+            locationStatus.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+        });
+        })
         .then(result => {
             if (result.status === 'success') {
-                alert('✅ Bildirim ayarlarınız başarıyla kaydedildi! WhatsApp üzerinden uyarı alacaksınız.');
-                locationStatus.innerHTML += `<br>🔔 Bildirimler **${number}** numarasına aktif edildi.`;
+                // Başarı mesajı + Sandbox rehberi
+                locationStatus.innerHTML = `
+                    <div style="background-color: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; color: #2ecc71; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                        <p style="margin: 0; font-weight: 600;">✅ ${result.message || 'Bildirim ayarlarınız başarıyla kaydedildi!'}</p>
+                        <p style="margin: 10px 0 0 0; font-size: 0.9em;">🔔 Bildirimler <strong>${number}</strong> numarasına aktif edildi.</p>
+                        <div style="margin-top: 15px; padding: 10px; background-color: rgba(255, 193, 7, 0.2); border-radius: 5px;">
+                            <p style="margin: 5px 0; font-size: 0.9em; color: #FFC107;">
+                                ⚠️ <strong>ÖNEMLİ - WhatsApp Sandbox'a Katılın (ÜCRETSİZ):</strong>
+                            </p>
+                            <p style="margin: 5px 0; font-size: 0.85em;">
+                                Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor. Bu işlem <strong>ücretsizdir</strong> ve sadece bir kez yapılır.
+                            </p>
+                            <ol style="margin: 10px 0; padding-left: 20px; font-size: 0.85em;">
+                                <li><a href="https://console.twilio.com" target="_blank" style="color: #FFC107; text-decoration: underline;">Twilio Console</a>'a gidin</li>
+                                <li><strong>Messaging</strong> > <strong>Try it out</strong> > <strong>Send a WhatsApp message</strong></li>
+                                <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın (örn: <code style="background: rgba(0,0,0,0.3); padding: 2px 5px; border-radius: 3px;">join abc-xyz</code>)</li>
+                                <li>WhatsApp'tan <strong>+1 415 523 8886</strong> numarasına bu kodu gönderin</li>
+                                <li>Onay mesajı gelecek: <strong>"You're all set!"</strong></li>
+                            </ol>
+                            <p style="margin: 10px 0 0 0; font-size: 0.8em; color: var(--color-light-text);">
+                                💡 Bu işlem sadece bir kez yapılır. Sandbox'a katıldıktan sonra tüm bildirimleri alabilirsiniz!
+                            </p>
+                        </div>
+                    </div>
+                `;
+                numberInput.value = '';
             } else {
-                alert('Hata: Ayarlar kaydedilirken sunucuda bir sorun oluştu. ' + result.message);
+                locationStatus.innerHTML = `<p style="color: #FF1744;">❌ Hata: ${result.message || 'Bildirim ayarları kaydedilemedi'}</p>`;
             }
         })
         .catch(error => {

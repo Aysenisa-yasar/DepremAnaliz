@@ -67,69 +67,124 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .then(data => {
                 listContainer.innerHTML = '';
+                let bounds = [];
                 
-                if (!data || data.status === 'low_activity' || !data.risk_regions || data.risk_regions.length === 0) {
-                    listContainer.innerHTML = '<p>Şu anda yeterli kümeleme verisi yok veya risk düşüktür. (Deprem sayısı < 10)</p>';
-                    return;
-                }
-
-                let bounds = []; 
-                
-                // Aktif fay hatlarını haritaya ekle
-                if (data.fault_lines) {
+                // 1. Aktif fay hatlarını haritaya ekle (ÖNCE - en altta kalacak)
+                if (data.fault_lines && data.fault_lines.length > 0) {
                     data.fault_lines.forEach(fault => {
                         const faultCoords = fault.coords.map(coord => [coord[0], coord[1]]);
                         const polyline = L.polyline(faultCoords, {
-                            color: '#8B0000',
-                            weight: 3,
-                            opacity: 0.7
+                            color: '#DC143C',  // Koyu kırmızı
+                            weight: 4,
+                            opacity: 0.8,
+                            dashArray: '10, 5'  // Kesikli çizgi
                         }).addTo(mymap);
-                        polyline.bindPopup(`<b>${fault.name}</b>`);
+                        polyline.bindPopup(`<b>${fault.name}</b><br>⚠️ Aktif Fay Hattı`);
                         bounds.push(...faultCoords);
                     });
                 }
                 
-                data.risk_regions.forEach(riskRegion => {
-                    
-                    const { lat, lon, score, density } = riskRegion;
-                    bounds.push([lat, lon]);
-                    
-                    const color = getRiskColor(score);
-                    
-                    const marker = L.circleMarker([lat, lon], {
-                        radius: score * 1.5, 
-                        color: color,
-                        fillColor: color,
-                        fillOpacity: 0.6,
-                        weight: 2
-                    }).addTo(mymap);
-                    
-                    const popupContent = `
-                        <b>YZ Risk Merkezi #${riskRegion.id + 1}</b><br>
-                        Risk Puanı: <b>${score.toFixed(1)} / 10</b><br>
-                        Yoğunluk: ${density} deprem
-                    `;
-                    marker.bindPopup(popupContent).openPopup();
-
-                    const item = document.createElement('div');
-                    item.className = 'earthquake-item';
-                    let magnitudeClass = (score >= 7.0) ? 'mag-high' : (score >= 4.0 ? 'mag-medium' : 'mag-low');
-
-                    item.innerHTML = `
-                        <div class="magnitude-box ${magnitudeClass}">${score.toFixed(1)}</div>
-                        <div class="details">
-                            <p class="location">Risk Merkezi #${riskRegion.id + 1}: YZ Analizi</p>
-                            <p class="info">
-                                Risk Puanı: ${score.toFixed(1)} / 10 | 
-                                Yoğunluk: ${density} son deprem
-                            </p>
-                        </div>
-                    `;
-                    listContainer.appendChild(item);
-                });
+                // 2. Son depremleri haritaya ekle (GERÇEK DEPREMLER)
+                if (data.recent_earthquakes && data.recent_earthquakes.length > 0) {
+                    data.recent_earthquakes.forEach((eq, index) => {
+                        if (eq.geojson && eq.geojson.coordinates) {
+                            const [lon, lat] = eq.geojson.coordinates;
+                            const mag = eq.mag || 0;
+                            const location = eq.location || 'Bilinmiyor';
+                            const date = eq.date || '';
+                            const time = eq.time || '';
+                            
+                            bounds.push([lat, lon]);
+                            
+                            // Büyüklüğe göre renk ve boyut
+                            let eqColor = '#2ecc71'; // Yeşil (düşük)
+                            let radius = 5;
+                            if (mag >= 5.0) {
+                                eqColor = '#e74c3c'; // Kırmızı (yüksek)
+                                radius = 12;
+                            } else if (mag >= 4.0) {
+                                eqColor = '#f39c12'; // Turuncu (orta)
+                                radius = 8;
+                            } else if (mag >= 3.0) {
+                                eqColor = '#3498db'; // Mavi (düşük-orta)
+                                radius = 6;
+                            }
+                            
+                            // Deprem marker'ı
+                            const eqMarker = L.circleMarker([lat, lon], {
+                                radius: radius,
+                                color: '#000',
+                                fillColor: eqColor,
+                                fillOpacity: 0.8,
+                                weight: 2
+                            }).addTo(mymap);
+                            
+                            const popupContent = `
+                                <b>📍 Deprem #${index + 1}</b><br>
+                                <b>Büyüklük: M${mag.toFixed(1)}</b><br>
+                                Konum: ${location}<br>
+                                Tarih: ${date} ${time}<br>
+                                Derinlik: ${eq.depth || 'N/A'} km
+                            `;
+                            eqMarker.bindPopup(popupContent);
+                            
+                            // Liste için item oluştur
+                            const item = document.createElement('div');
+                            item.className = 'earthquake-item';
+                            let magnitudeClass = (mag >= 5.0) ? 'mag-high' : (mag >= 4.0 ? 'mag-medium' : 'mag-low');
+                            
+                            item.innerHTML = `
+                                <div class="magnitude-box ${magnitudeClass}">${mag.toFixed(1)}</div>
+                                <div class="details">
+                                    <p class="location">${location}</p>
+                                    <p class="info">
+                                        Tarih: ${date} ${time} | 
+                                        Derinlik: ${eq.depth || 'N/A'} km
+                                    </p>
+                                </div>
+                            `;
+                            listContainer.appendChild(item);
+                        }
+                    });
+                }
                 
+                // 3. YZ Risk bölgelerini ekle (EN ÜSTTE - en son eklenen)
+                if (data.risk_regions && data.risk_regions.length > 0) {
+                    data.risk_regions.forEach(riskRegion => {
+                        const { lat, lon, score, density } = riskRegion;
+                        bounds.push([lat, lon]);
+                        
+                        const color = getRiskColor(score);
+                        
+                        const marker = L.circleMarker([lat, lon], {
+                            radius: score * 1.5, 
+                            color: color,
+                            fillColor: color,
+                            fillOpacity: 0.5,
+                            weight: 3
+                        }).addTo(mymap);
+                        
+                        const popupContent = `
+                            <b>🤖 YZ Risk Merkezi #${riskRegion.id + 1}</b><br>
+                            Risk Puanı: <b>${score.toFixed(1)} / 10</b><br>
+                            Yoğunluk: ${density} deprem
+                        `;
+                        marker.bindPopup(popupContent);
+                    });
+                }
+                
+                // Veri yoksa mesaj göster
+                if ((!data.recent_earthquakes || data.recent_earthquakes.length === 0) && 
+                    (!data.risk_regions || data.risk_regions.length === 0)) {
+                    listContainer.innerHTML = '<p>Şu anda yeterli deprem verisi yok veya risk düşüktür.</p>';
+                }
+                
+                // Haritayı tüm işaretlere göre ayarla
                 if (bounds.length > 0) {
                     mymap.fitBounds(bounds, { padding: [50, 50] });
+                } else {
+                    // Varsayılan Türkiye görünümü
+                    mymap.setView([39.9, 35.8], 6);
                 }
             })
             .catch(error => {

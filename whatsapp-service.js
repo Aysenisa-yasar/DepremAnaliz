@@ -152,7 +152,26 @@ function initializeWhatsApp() {
     // Hata durumunda
     client.on('error', (error) => {
         console.error('[WhatsApp] ❌ Hata:', error);
-        connectionError = `Bağlantı hatası: ${error.message || error}`;
+        const errorMsg = error.message || error.toString();
+        connectionError = `Bağlantı hatası: ${errorMsg}`;
+        
+        // Protocol error veya Target closed hatası için özel işlem
+        if (errorMsg.includes('Protocol error') || errorMsg.includes('Target closed') || errorMsg.includes('Session closed')) {
+            console.log('[WhatsApp] 🔄 Puppeteer hatası tespit edildi, yeniden başlatılıyor...');
+            setTimeout(() => {
+                if (client) {
+                    try {
+                        client.destroy();
+                    } catch (err) {
+                        console.log('[WhatsApp] Client destroy hatası:', err.message);
+                    }
+                }
+                clearSession();
+                setTimeout(() => {
+                    initializeWhatsApp();
+                }, 5000);
+            }, 3000);
+        }
     });
 
     // Loading ekranı
@@ -163,13 +182,24 @@ function initializeWhatsApp() {
     // Client'ı başlat
     client.initialize().catch(err => {
         console.error('[WhatsApp] ❌ Başlatma hatası:', err);
-        connectionError = `Başlatma hatası: ${err.message || err}`;
+        const errorMsg = err.message || err.toString();
+        connectionError = `Başlatma hatası: ${errorMsg}`;
         
-        // Hata durumunda yeniden dene
-        setTimeout(() => {
-            console.log('[WhatsApp] 🔄 Yeniden başlatma deneniyor...');
-            initializeWhatsApp();
-        }, 10000);
+        // Protocol error veya Target closed hatası için özel işlem
+        if (errorMsg.includes('Protocol error') || errorMsg.includes('Target closed') || errorMsg.includes('Session closed') || errorMsg.includes('Browser closed')) {
+            console.log('[WhatsApp] 🔄 Puppeteer/Chromium hatası tespit edildi, session temizleniyor...');
+            clearSession();
+            setTimeout(() => {
+                console.log('[WhatsApp] 🔄 Yeniden başlatma deneniyor (15 saniye sonra)...');
+                initializeWhatsApp();
+            }, 15000); // 15 saniye bekle (Render.com kaynaklarının serbest kalması için)
+        } else {
+            // Diğer hatalar için normal retry
+            setTimeout(() => {
+                console.log('[WhatsApp] 🔄 Yeniden başlatma deneniyor (10 saniye sonra)...');
+                initializeWhatsApp();
+            }, 10000);
+        }
     });
 }
 
@@ -183,6 +213,22 @@ function clearSession() {
         }
     } catch (err) {
         console.error('[WhatsApp] ❌ Session temizleme hatası:', err);
+    }
+    
+    // Chromium process'lerini temizle (Render.com için)
+    try {
+        const { exec } = require('child_process');
+        if (process.platform === 'linux') {
+            // Linux'ta chromium process'lerini kill et
+            exec('pkill -f chromium || pkill -f chrome || true', (error) => {
+                if (!error) {
+                    console.log('[WhatsApp] ✅ Chromium process\'leri temizlendi');
+                }
+            });
+        }
+    } catch (err) {
+        // Process temizleme hatası kritik değil
+        console.log('[WhatsApp] Process temizleme atlandı');
     }
 }
 

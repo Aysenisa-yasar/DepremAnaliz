@@ -1266,11 +1266,19 @@ def anomaly_detection():
     lon = float(data.get('lon'))
     
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+        if not earthquake_data:
+            return jsonify({
+                "anomaly_detected": False,
+                "anomaly_score": 0.0,
+                "message": "API'den veri alınamadı."
+            })
+    except Exception as e:
+        return jsonify({
+            "anomaly_detected": False,
+            "anomaly_score": 0.0,
+            "message": f"Veri kaynağına erişilemedi: {str(e)}"
+        })
     
     anomaly = detect_anomalies(earthquake_data, lat, lon)
     return jsonify(anomaly)
@@ -1284,19 +1292,11 @@ def get_fault_lines():
 def city_damage_analysis():
     """ 5+ depremler için il bazında otomatik yapay zeka destekli hasar tahmini yapar. """
     try:
-        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
-        if not earthquake_data:
-            return jsonify({
-                "status": "no_major_earthquakes",
-                "message": "API'den veri alınamadı.",
-                "city_damages": []
-            })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"Veri kaynağına erişilemedi: {str(e)}",
-            "city_damages": []
-        })
+        response = requests.get(KANDILLI_API, timeout=10)
+        response.raise_for_status() 
+        earthquake_data = response.json().get('result', [])
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
     
     # 5+ depremleri filtrele
     major_earthquakes = [eq for eq in earthquake_data if eq.get('mag', 0) >= 5.0]

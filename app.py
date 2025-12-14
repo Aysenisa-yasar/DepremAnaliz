@@ -32,6 +32,61 @@ CORS(app)
 # Kandilli verilerini çeken üçüncü taraf API
 KANDILLI_API = 'https://api.orhanaydogdu.com.tr/deprem/kandilli/live'
 
+# API veri cache (son 5 dakika)
+api_cache = {'data': None, 'timestamp': 0, 'cache_duration': 300}  # 5 dakika cache
+
+def fetch_earthquake_data_with_retry(url, max_retries=2, timeout=60):
+    """API'den veri çeker, retry mekanizması ve cache ile."""
+    global api_cache
+    
+    # Cache kontrolü (son 5 dakika içinde çekilen veriyi kullan)
+    current_time = time.time()
+    if api_cache['data'] and (current_time - api_cache['timestamp']) < api_cache['cache_duration']:
+        print(f"[CACHE] Önbellekten veri döndürülüyor ({(current_time - api_cache['timestamp']):.0f} saniye önce)")
+        return api_cache['data']
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, timeout=timeout, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
+            })
+            response.raise_for_status()
+            data = response.json().get('result', [])
+            
+            # Cache'e kaydet
+            api_cache['data'] = data
+            api_cache['timestamp'] = current_time
+            
+            return data
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                wait_time = 2
+                print(f"[RETRY] API timeout, {wait_time} saniye bekleyip tekrar deneniyor... (Deneme {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            else:
+                print("[ERROR] API timeout: Tüm denemeler başarısız")
+                # Cache'deki eski veriyi döndür (varsa)
+                if api_cache['data']:
+                    print("[CACHE] Eski cache verisi döndürülüyor")
+                    return api_cache['data']
+                return []
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_time = 2
+                print(f"[RETRY] API hatası: {e}, {wait_time} saniye bekleyip tekrar deneniyor...")
+                time.sleep(wait_time)
+                continue
+            else:
+                print(f"[ERROR] API hatası: Tüm denemeler başarısız - {e}")
+                # Cache'deki eski veriyi döndür (varsa)
+                if api_cache['data']:
+                    print("[CACHE] Eski cache verisi döndürülüyor")
+                    return api_cache['data']
+                return []
+    return []
+
 # --- TWILIO BİLDİRİM SABİTLERİ (ORTAM DEĞİŞKENLERİNDEN OKUNUR) ---
 # Twilio kimlik bilgileri ve numarası, Render ortam değişkenlerinden alınır.
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
@@ -1404,6 +1459,42 @@ def city_damage_analysis():
         "affected_cities": len(sorted_cities),
         "city_damages": sorted_cities
     })
+
+@app.route('/api/chatbot', methods=['POST'])
+def chatbot():
+    """ Deprem asistanı chatbot endpoint'i. """
+    data = request.get_json()
+    message = data.get('message', '').lower().strip()
+    
+    # Basit rule-based AI
+    responses = {
+        'merhaba': 'Merhaba! Deprem güvenliği ve risk analizi hakkında size nasıl yardımcı olabilirim?',
+        'selam': 'Selam! Depremler, güvenlik önlemleri ve risk analizi hakkında sorularınızı yanıtlayabilirim.',
+        'risk': 'Risk analizi için haritadaki "Risk Analizi" bölümünü kullanabilirsiniz. Ayrıca konumunuzu girerek kişisel risk tahmini yapabilirsiniz.',
+        'deprem': 'Depremler hakkında bilgi almak için haritadaki "Son Depremler" bölümüne bakabilirsiniz. Ayrıca İstanbul için erken uyarı sistemi mevcuttur.',
+        'güvenlik': 'Deprem sırasında: Çök, Kapan, Tutun. Güvenli bir yere sığının. Deprem sonrası: Gaz, elektrik ve su vanalarını kapatın. Açık alanlara çıkın.',
+        'istanbul': 'İstanbul için özel erken uyarı sistemi mevcuttur. "İstanbul Erken Uyarı" bölümünden kontrol edebilirsiniz.',
+        'fay hattı': 'Türkiye\'deki aktif fay hatları haritada gösterilmektedir. Kuzey Anadolu Fay Hattı (KAF), Doğu Anadolu Fay Hattı (DAF) ve diğer fay sistemleri görüntülenebilir.',
+        'hasar': '5.0 ve üzeri depremler için otomatik hasar tahmini yapılmaktadır. "İl Bazında Hasar Analizi" bölümünden kontrol edebilirsiniz.',
+        'bildirim': 'WhatsApp bildirimleri için "Bildirim Ayarları" bölümünden telefon numaranızı kaydedebilirsiniz.',
+        'yardım': 'Size nasıl yardımcı olabilirim? Risk analizi, deprem bilgileri, güvenlik önlemleri veya bildirim ayarları hakkında soru sorabilirsiniz.',
+        'nasıl': 'Sistem, Kandilli Rasathanesi verilerini kullanarak gerçek zamanlı deprem analizi yapar. Makine öğrenmesi modelleri ile risk tahmini yapılır.',
+        'teşekkür': 'Rica ederim! Başka bir sorunuz varsa çekinmeyin.',
+        'teşekkürler': 'Rica ederim! Başka bir sorunuz varsa çekinmeyin.',
+    }
+    
+    # Anahtar kelime eşleştirme
+    response_text = None
+    for keyword, response in responses.items():
+        if keyword in message:
+            response_text = response
+            break
+    
+    # Eğer eşleşme yoksa genel yanıt
+    if not response_text:
+        response_text = 'Üzgünüm, bu konuda daha fazla bilgi veremiyorum. Deprem risk analizi, güvenlik önlemleri, İstanbul erken uyarı sistemi veya bildirim ayarları hakkında soru sorabilirsiniz.'
+    
+    return jsonify({"response": response_text})
 
 @app.route('/api/set-alert', methods=['POST'])
 def set_alert_settings():

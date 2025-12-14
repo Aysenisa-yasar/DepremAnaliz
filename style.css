@@ -76,6 +76,14 @@ h1 {
     z-index: 1;
 }
 
+.header h1 {
+    color: #ffffff !important;
+}
+
+h1.header-title {
+    color: #ffffff !important;
+}
+
 .subtitle {
     color: var(--color-light-text);
     font-size: 1.1em;
@@ -139,6 +147,14 @@ div.card h2 {
     font-size: 1.2em;
     margin-bottom: 10px;
     text-align: center;
+}
+
+.maps-container h3 {
+    color: #ffffff !important;
+}
+
+.maps-container .map-wrapper h3 {
+    color: #ffffff !important;
 }
 
 /* Genel başlık stilleri */

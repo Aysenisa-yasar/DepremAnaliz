@@ -411,6 +411,13 @@ def send_whatsapp_notification(recipient_number, body, location_url=None):
         print("  Gerekli: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER")
         return False
     
+    # Sandbox kontrolü - Eğer sandbox numarası kullanılıyorsa uyarı ver
+    is_sandbox = '14155238886' in TWILIO_WHATSAPP_NUMBER or 'sandbox' in TWILIO_WHATSAPP_NUMBER.lower()
+    if is_sandbox:
+        print(f"[INFO] Twilio WhatsApp Sandbox modu aktif. Sadece sandbox'a kayıtlı numaralara mesaj gönderilebilir.")
+        print(f"[INFO] Numara {recipient_number} sandbox'a kayıtlı değilse mesaj gönderilemez.")
+        print(f"[INFO] Çözüm: Twilio Console > Messaging > WhatsApp Sandbox sayfasından 'join code' ile numarayı ekleyin.")
+    
     try:
         # Client, Ortam Değişkenlerinden alınan SID ve Token ile başlatılır
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)

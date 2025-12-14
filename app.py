@@ -22,6 +22,7 @@ import lightgbm as lgb
 from flask_cors import CORS 
 from threading import Thread
 from twilio.rest import Client
+from twilio.base.exceptions import TwilioRestException
 import requests.exceptions
 import pandas as pd 
 
@@ -240,7 +241,6 @@ TURKEY_CITIES = {
     "Kastamonu": {"lat": 41.3667, "lon": 33.7667, "building_structure": {"reinforced": 0.25, "normal": 0.60, "weak": 0.15}},
     "Sinop": {"lat": 42.0167, "lon": 35.1500, "building_structure": {"reinforced": 0.25, "normal": 0.60, "weak": 0.15}},
     "Çanakkale": {"lat": 40.1553, "lon": 26.4142, "building_structure": {"reinforced": 0.30, "normal": 0.55, "weak": 0.15}},
-    "Çankırı": {"lat": 40.6667, "lon": 33.4167, "building_structure": {"reinforced": 0.20, "normal": 0.55, "weak": 0.25}},
     "Bilecik": {"lat": 40.1419, "lon": 29.9792, "building_structure": {"reinforced": 0.25, "normal": 0.60, "weak": 0.15}},
     "Burdur": {"lat": 37.7167, "lon": 30.2833, "building_structure": {"reinforced": 0.25, "normal": 0.60, "weak": 0.15}},
     "Isparta": {"lat": 37.7667, "lon": 30.5500, "building_structure": {"reinforced": 0.25, "normal": 0.60, "weak": 0.15}},
@@ -404,28 +404,15 @@ TURKEY_CITIES = {
 
 # --- YARDIMCI FONKSİYONLAR ---
 
-def clean_phone_number(number):
-    """ Telefon numarasındaki boşluk, tire, parantez gibi karakterleri temizler.
-    Returns: Temizlenmiş numara (örnek: +905456246352) """
-    if not number:
-        return ""
-    # Tüm boşluk, tire, parantez ve diğer özel karakterleri kaldır
-    cleaned = ''.join(char for char in number if char.isdigit() or char == '+')
-    # Eğer + ile başlamıyorsa ve 0 ile başlıyorsa, 0'ı kaldır ve + ekle
-    if not cleaned.startswith('+'):
-        cleaned = cleaned.lstrip('0')
-        if cleaned:
-            cleaned = '+' + cleaned
-    return cleaned
-
 def send_whatsapp_notification(recipient_number, body, location_url=None):
     """ Twilio üzerinden WhatsApp mesajı gönderir. Konum linki eklenebilir. 
-    Returns: (success: bool, error_message: str or None) """
+    Returns: (success: bool, error_message: str veya None)
+    """
     # Twilio bilgileri kontrolü
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_WHATSAPP_NUMBER:
-        error_msg = "Twilio ayarlari yapilmamis! Ortam degiskenlerini kontrol edin. Gerekli: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER"
-        print(f"[WARNING] {error_msg}")
-        return False, error_msg
+        print("[WARNING] Twilio ayarlari yapilmamis! Ortam degiskenlerini kontrol edin.")
+        print("  Gerekli: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER")
+        return False, "Twilio ayarları yapılmamış"
     
     # Sandbox kontrolü - Eğer sandbox numarası kullanılıyorsa uyarı ver
     is_sandbox = '14155238886' in TWILIO_WHATSAPP_NUMBER or 'sandbox' in TWILIO_WHATSAPP_NUMBER.lower()
@@ -441,13 +428,9 @@ def send_whatsapp_notification(recipient_number, body, location_url=None):
         # Client, Ortam Değişkenlerinden alınan SID ve Token ile başlatılır
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         
-        # Numara formatını temizle (boşluk, tire vb. karakterleri kaldır)
-        recipient_number = clean_phone_number(recipient_number)
-        
-        if not recipient_number or not recipient_number.startswith('+'):
-            error_msg = f"Geçersiz telefon numarası formatı. Numara ülke kodu ile başlamalı (örnek: +905551234567). Alınan: {recipient_number}"
-            print(f"[ERROR] {error_msg}")
-            return False, error_msg
+        # Numara formatını düzelt (ülke kodu ile başlamalı)
+        if not recipient_number.startswith('+'):
+            recipient_number = '+' + recipient_number.lstrip('0')
         
         whatsapp_number = f"whatsapp:{recipient_number}"
         
@@ -460,34 +443,45 @@ def send_whatsapp_notification(recipient_number, body, location_url=None):
             body=body,
             to=whatsapp_number
         )
-        print(f"[OK] WhatsApp bildirimi gonderildi. SID: {message.sid}, Alıcı: {recipient_number}")
+        print(f"[OK] WhatsApp bildirimi gonderildi. SID: {message.sid}")
         return True, None
-    except Exception as e:
+    except TwilioRestException as e:
         error_msg = str(e)
-        print(f"[ERROR] WhatsApp mesaji gonderilemedi. Alıcı: {recipient_number}, Hata: {error_msg}")
+        error_code = e.code if hasattr(e, 'code') else None
+        status_code = e.status if hasattr(e, 'status') else None
         
-        # Hata mesajlarına göre öneriler
-        user_friendly_error = error_msg
+        print(f"[ERROR] Twilio hatası: {error_msg} (Code: {error_code}, Status: {status_code})")
+        
+        # HTTP 429 - Rate Limit hatası
+        if status_code == 429 or error_code == 20429 or "429" in error_msg or "daily messages limit" in error_msg.lower() or "exceeded" in error_msg.lower():
+            limit_info = "50 mesaj/gün" if "50" in error_msg else "günlük mesaj limiti"
+            error_message = f"HTTP 429 error: Twilio hesabınızın {limit_info} aşıldı. Limit yarın sıfırlanacak. Lütfen daha sonra tekrar deneyin."
+            print(f"[RATE LIMIT] {error_message}")
+            return False, error_message
+        
+        # Diğer hata türleri
         if "not found" in error_msg.lower() or "invalid" in error_msg.lower():
             print("[NOT] Twilio hesap bilgileri hatali olabilir. Kontrol edin:")
             print("  - Account SID dogru mu?")
             print("  - Auth Token dogru mu?")
             print("  - WhatsApp numarasi dogru formatta mi? (whatsapp:+14155238886)")
-            user_friendly_error = f"Twilio hesap bilgileri hatali: {error_msg}"
+            return False, "Twilio hesap bilgileri hatalı olabilir"
         elif "permission" in error_msg.lower() or "unauthorized" in error_msg.lower():
             print("[NOT] Twilio hesabinizda yetki sorunu var.")
             print("  - Hesabiniz aktif mi?")
             print("  - WhatsApp Sandbox'a katildiniz mi?")
-            user_friendly_error = f"Twilio yetki sorunu: {error_msg}"
-        elif "not a valid" in error_msg.lower() or "format" in error_msg.lower() or "21608" in error_msg:
-            print("[NOT] Telefon numarasi format hatasi veya sandbox'a kayitli degil.")
+            return False, "Twilio hesabınızda yetki sorunu var"
+        elif "not a valid" in error_msg.lower() or "format" in error_msg.lower():
+            print("[NOT] Telefon numarasi format hatasi.")
             print("  - Numara ulke kodu ile baslamali (ornek: +905551234567)")
             print("  - WhatsApp Sandbox'a kayitli numara olmali")
-            user_friendly_error = f"Numara sandbox'a kayitli degil veya format hatasi. Numara: {recipient_number}, Hata: {error_msg}"
-        elif "21211" in error_msg or "unsubscribed" in error_msg.lower():
-            user_friendly_error = f"Bu numara WhatsApp Sandbox'a kayitli degil. Numara: {recipient_number}. Twilio Console > Messaging > WhatsApp Sandbox sayfasindan 'join code' ile ekleyin."
+            return False, "Telefon numarası formatı hatalı"
         
-        return False, user_friendly_error
+        return False, f"Twilio hatası: {error_msg}"
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[ERROR] WhatsApp mesaji gonderilemedi: {error_msg}")
+        return False, f"Beklenmeyen hata: {error_msg}"
 
 # ... (haversine ve calculate_clustering_risk fonksiyonları aynı kalır)
 
@@ -2077,56 +2071,6 @@ def city_damage_analysis():
             "city_risks": []
         }), 500
 
-@app.route('/api/check-user', methods=['POST'])
-def check_user():
-    """ Kullanıcının sisteme kayıtlı olup olmadığını kontrol eder. """
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "Geçersiz istek. JSON verisi bekleniyor."}), 400
-        
-        number = data.get('number', '').strip()
-        if not number:
-            return jsonify({"status": "error", "message": "Telefon numarası gereklidir."}), 400
-        
-        # Numara formatını temizle (boşluk, tire vb. karakterleri kaldır)
-        number = clean_phone_number(number)
-        
-        if not number or not number.startswith('+'):
-            return jsonify({"status": "error", "message": "Telefon numarası ülke kodu ile (+XX) başlamalıdır. Örnek: +905551234567"}), 400
-        
-        # Kullanıcı verilerini yükle
-        user_alerts = load_user_alerts()
-        
-        # Kayıt kontrolü
-        if number in user_alerts:
-            user_data = user_alerts[number]
-            return jsonify({
-                "status": "success",
-                "registered": True,
-                "number": number,
-                "data": {
-                    "lat": user_data.get('lat'),
-                    "lon": user_data.get('lon'),
-                    "istanbul_alert": user_data.get('istanbul_alert', False),
-                    "registered_at": user_data.get('registered_at', 'N/A')
-                }
-            })
-        else:
-            return jsonify({
-                "status": "success",
-                "registered": False,
-                "number": number,
-                "message": "Bu numara sisteme kayıtlı değil."
-            })
-            
-    except Exception as e:
-        print(f"[ERROR] Kullanıcı kontrol hatası: {e}")
-        return jsonify({
-            "status": "error",
-            "message": f"Kontrol yapılamadı: {str(e)}"
-        }), 500
-
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
     """ Gelişmiş deprem asistanı chatbot endpoint'i. """
@@ -2236,15 +2180,12 @@ def set_alert_settings():
         if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
             return jsonify({"status": "error", "message": "Geçersiz koordinatlar."}), 400
         
-        number = data.get('number', '').strip()
+        number = data.get('number', '').strip() 
         
         if not number:
             return jsonify({"status": "error", "message": "Telefon numarası gereklidir."}), 400
         
-        # Numara formatını temizle (boşluk, tire vb. karakterleri kaldır)
-        number = clean_phone_number(number)
-        
-        if not number or not number.startswith('+'):
+        if not number.startswith('+'):
             return jsonify({"status": "error", "message": "Telefon numarası ülke kodu ile (+XX) başlamalıdır. Örnek: +90532xxxxxxx"}), 400
         
         # Konum bilgisini kalıcı hafızaya kaydet
@@ -2266,21 +2207,13 @@ def set_alert_settings():
         confirmation_body += f"📍 Kayıtlı Konum: {lat:.4f}, {lon:.4f}\n"
         confirmation_body += f"🔔 Bölgenizde (150 km içinde) M ≥ 5.0 deprem olursa size anında WhatsApp ile haber vereceğiz."
         
-        # Bildirim gönderme denemesi
-        notification_sent, notification_error = send_whatsapp_notification(number, confirmation_body, location_url)
+        # Onay mesajını göndermeyi dene
+        send_success, send_error = send_whatsapp_notification(number, confirmation_body, location_url)
+        if not send_success and send_error:
+            print(f"[WARNING] WhatsApp bildirimi gönderilemedi: {send_error}")
+            # Bildirim gönderilemese bile ayarları kaydet
         
-        if notification_sent:
-            return jsonify({
-                "status": "success", 
-                "message": "Bildirim ayarlarınız kaydedildi ve onay mesajı gönderildi."
-            })
-        else:
-            # Bildirim gönderilemese bile ayarları kaydet, ama kullanıcıyı bilgilendir
-            return jsonify({
-                "status": "success", 
-                "message": "Bildirim ayarlarınız kaydedildi.",
-                "warning": "Onay mesajı gönderilemedi. " + (notification_error if notification_error else "Twilio ayarlarını kontrol edin.")
-            })
+        return jsonify({"status": "success", "message": "Bildirim ayarlarınız kaydedildi."})
     except ValueError as e:
         return jsonify({"status": "error", "message": f"Geçersiz veri formatı: {str(e)}"}), 400
     except Exception as e:
@@ -2301,10 +2234,7 @@ def set_istanbul_alert():
         if not number:
             return jsonify({"status": "error", "message": "Telefon numarası gereklidir."}), 400
         
-        # Numara formatını temizle (boşluk, tire vb. karakterleri kaldır)
-        number = clean_phone_number(number)
-        
-        if not number or not number.startswith('+'):
+        if not number.startswith('+'):
             return jsonify({"status": "error", "message": "Telefon numarası ülke kodu ile (+XX) başlamalıdır. Örnek: +90532xxxxxxx"}), 400
         
         # İstanbul koordinatları (varsayılan olarak İstanbul merkez)
@@ -2344,20 +2274,28 @@ def set_istanbul_alert():
         confirmation_body += f"• Bildirimler otomatik olarak gönderilir, ek işlem yapmanıza gerek yok\n\n"
         confirmation_body += f"⚠️ Lütfen hazırlıklı olun ve acil durum planınızı gözden geçirin!"
         
-        # Bildirim gönderme denemesi
-        notification_sent, notification_error = send_whatsapp_notification(number, confirmation_body)
+        # Onay mesajını göndermeyi dene
+        send_success, send_error = send_whatsapp_notification(number, confirmation_body)
+        warning_message = None
         
-        if notification_sent:
-            return jsonify({
-                "status": "success",
-                "message": "İstanbul erken uyarı bildirimleri başarıyla kaydedildi ve onay mesajı gönderildi. Deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilecektir."
-            })
-        else:
-            return jsonify({
-                "status": "success",
-                "message": "İstanbul erken uyarı bildirimleri kaydedildi.",
-                "warning": "Onay mesajı gönderilemedi. " + (notification_error if notification_error else "Twilio ayarlarını kontrol edin.")
-            })
+        if not send_success and send_error:
+            # HTTP 429 veya diğer hatalar için uyarı mesajı hazırla
+            if "429" in send_error or "limit" in send_error.lower():
+                warning_message = f"UYARI: Onay mesajı gönderilemedi. {send_error}"
+            else:
+                warning_message = f"UYARI: Onay mesajı gönderilemedi. {send_error}"
+            print(f"[WARNING] {warning_message}")
+        
+        response_data = {
+            "status": "success",
+            "message": "İstanbul erken uyarı bildirimleri başarıyla kaydedildi. Deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilecektir."
+        }
+        
+        # Eğer mesaj gönderilemediyse uyarı ekle
+        if warning_message:
+            response_data["warning"] = warning_message
+        
+        return jsonify(response_data)
     except Exception as e:
         print(f"[ERROR] İstanbul bildirim ayarları hatası: {e}")
         return jsonify({"status": "error", "message": f"Sunucu hatası: {str(e)}"}), 500
@@ -2537,15 +2475,12 @@ def check_for_big_earthquakes():
                             body += f"• Aile acil durum planınızı gözden geçirin\n"
                             body += f"• Sakin kalın ve hazırlıklı olun"
                             
-                            try:
-                                notification_sent, notification_error = send_whatsapp_notification(number, body)
-                                if notification_sent:
-                                    last_istanbul_alert_time[alert_key] = current_time
-                                    print(f"✅ {city_name} erken uyarı bildirimi gönderildi: {number}")
-                                else:
-                                    print(f"❌ {city_name} erken uyarı bildirimi gönderilemedi: {number}, Hata: {notification_error}")
-                            except Exception as e:
-                                print(f"[ERROR] {city_name} bildirimi gönderilemedi ({number}): {e}")
+                            send_success, send_error = send_whatsapp_notification(number, body)
+                            if send_success:
+                                last_istanbul_alert_time[alert_key] = current_time
+                                print(f"✅ {city_name} erken uyarı bildirimi gönderildi: {number}")
+                            else:
+                                print(f"[ERROR] {city_name} bildirimi gönderilemedi ({number}): {send_error}")
         except Exception as e:
             print(f"[ERROR] Türkiye erken uyarı kontrolü hatası: {e}")
         
@@ -2598,15 +2533,12 @@ def check_for_big_earthquakes():
                         body += f"• Aile acil durum planınızı gözden geçirin\n"
                         body += f"• Sakin kalın ve hazırlıklı olun"
                         
-                        try:
-                            notification_sent, notification_error = send_whatsapp_notification(number, body)
-                            if notification_sent:
-                                last_istanbul_alert_time[alert_key] = current_time
-                                print(f"✅ İstanbul erken uyarı bildirimi gönderildi: {number}")
-                            else:
-                                print(f"❌ İstanbul erken uyarı bildirimi gönderilemedi: {number}, Hata: {notification_error}")
-                        except Exception as e:
-                            print(f"[ERROR] İstanbul bildirimi gönderilemedi ({number}): {e}")
+                        send_success, send_error = send_whatsapp_notification(number, body)
+                        if send_success:
+                            last_istanbul_alert_time[alert_key] = current_time
+                            print(f"✅ İstanbul erken uyarı bildirimi gönderildi: {number}")
+                        else:
+                            print(f"[ERROR] İstanbul bildirimi gönderilemedi ({number}): {send_error}")
         except Exception as e:
             print(f"[ERROR] İstanbul erken uyarı kontrolü hatası: {e}")
 
@@ -2654,11 +2586,9 @@ def check_for_big_earthquakes():
                             body += f"📍 Sizin Konumunuz: {user_location_url}\n\n"
                             body += f"⚠️ Lütfen güvende kalın ve acil durum planınızı uygulayın!"
                             
-                            notification_sent, notification_error = send_whatsapp_notification(number, body)
-                            if notification_sent:
-                                print(f"✅ Büyük deprem bildirimi gönderildi: {number}")
-                            else:
-                                print(f"❌ Büyük deprem bildirimi gönderilemedi: {number}, Hata: {notification_error}")
+                            send_success, send_error = send_whatsapp_notification(number, body)
+                            if not send_success:
+                                print(f"[ERROR] Büyük deprem bildirimi gönderilemedi ({number}): {send_error}")
 
 # Arka plan iş parçacıklarını başlat
 

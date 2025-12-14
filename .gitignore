@@ -19,6 +19,7 @@ instance/
 .env
 .env.local
 *.env
+RENDER_ENV_VARIABLES.txt
 
 # Twilio credentials (güvenlik için)
 # TWILIO_ACCOUNT_SID

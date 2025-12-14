@@ -1158,12 +1158,23 @@ def get_risk_analysis():
     start_time = time.time()
     
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
-    except requests.exceptions.RequestException as e:
-        print(f"HATA: Kandilli verisi çekilemedi: {e}")
-        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+        if not earthquake_data:
+            return jsonify({
+                "status": "low_activity",
+                "risk_regions": [],
+                "fault_lines": TURKEY_FAULT_LINES,
+                "recent_earthquakes": [],
+                "message": "API'den veri alınamadı."
+            })
+    except Exception as e:
+        return jsonify({
+            "status": "low_activity",
+            "risk_regions": [],
+            "fault_lines": TURKEY_FAULT_LINES,
+            "recent_earthquakes": [],
+            "message": f"Veri kaynağına erişilemedi: {str(e)}"
+        })
 
     risk_data = calculate_clustering_risk(earthquake_data)
     risk_data['fault_lines'] = TURKEY_FAULT_LINES
@@ -1198,11 +1209,11 @@ def predict_risk():
     use_ml = data.get('use_ml', True)  # ML kullanımı (varsayılan: True)
     
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+        if not earthquake_data:
+            return jsonify({"error": "API'den veri alınamadı."}), 500
+    except Exception as e:
+        return jsonify({"error": f"Veri kaynağına erişilemedi: {str(e)}"}), 500
     
     # Gelişmiş ML modeli ile tahmin
     if use_ml:
@@ -1221,11 +1232,23 @@ def predict_risk():
 def istanbul_early_warning():
     """ İstanbul için özel erken uyarı sistemi. """
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+        if not earthquake_data:
+            return jsonify({
+                "alert_level": "BİLGİ YOK",
+                "alert_score": 0.0,
+                "message": "API'den veri alınamadı.",
+                "recent_earthquakes": 0,
+                "anomaly_detected": False
+            })
+    except Exception as e:
+        return jsonify({
+            "alert_level": "BİLGİ YOK",
+            "alert_score": 0.0,
+            "message": f"Veri kaynağına erişilemedi: {str(e)}",
+            "recent_earthquakes": 0,
+            "anomaly_detected": False
+        })
     
     warning = istanbul_early_warning_system(earthquake_data)
     return jsonify(warning)
@@ -1266,11 +1289,19 @@ def anomaly_detection():
     lon = float(data.get('lon'))
     
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+        if not earthquake_data:
+            return jsonify({
+                "anomaly_detected": False,
+                "anomaly_score": 0.0,
+                "message": "API'den veri alınamadı."
+            })
+    except Exception as e:
+        return jsonify({
+            "anomaly_detected": False,
+            "anomaly_score": 0.0,
+            "message": f"Veri kaynağına erişilemedi: {str(e)}"
+        })
     
     anomaly = detect_anomalies(earthquake_data, lat, lon)
     return jsonify(anomaly)
@@ -1284,11 +1315,19 @@ def get_fault_lines():
 def city_damage_analysis():
     """ 5+ depremler için il bazında otomatik yapay zeka destekli hasar tahmini yapar. """
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+        if not earthquake_data:
+            return jsonify({
+                "status": "no_major_earthquakes",
+                "message": "API'den veri alınamadı.",
+                "city_damages": []
+            })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Veri kaynağına erişilemedi: {str(e)}",
+            "city_damages": []
+        })
     
     # 5+ depremleri filtrele
     major_earthquakes = [eq for eq in earthquake_data if eq.get('mag', 0) >= 5.0]
@@ -1415,10 +1454,10 @@ def check_for_big_earthquakes():
         time.sleep(60) 
 
         try:
-            response = requests.get(KANDILLI_API, timeout=5)
-            response.raise_for_status() 
-            earthquakes = response.json().get('result', [])
-        except requests.exceptions.RequestException:
+            earthquakes = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=1, timeout=30)
+            if not earthquakes:
+                continue
+        except Exception:
             continue
         
         # İstanbul erken uyarı kontrolü

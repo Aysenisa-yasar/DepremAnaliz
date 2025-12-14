@@ -533,6 +533,23 @@ document.addEventListener('DOMContentLoaded', () => {
                                         <p style="margin: 2px 0; font-size: 0.75em;">M${eq.magnitude} - ${eq.location} (${eq.distance} km uzaklıkta)</p>
                                     `).join('')}
                                 ` : ''}
+                                ${city.building_risk_analysis ? `
+                                    <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid rgba(255,255,255,0.5);">
+                                        <p style="margin: 5px 0; font-size: 0.9em;"><strong>🏗️ BİNA RİSK ANALİZİ:</strong></p>
+                                        <p style="margin: 5px 0; font-size: 0.85em;">Hasar Skoru: <strong>${city.building_risk_analysis.damage_score}/100</strong></p>
+                                        <p style="margin: 5px 0; font-size: 0.85em;">Hasar Seviyesi: <strong>${city.building_risk_analysis.damage_level}</strong></p>
+                                        <p style="margin: 5px 0; font-size: 0.8em;">${city.building_risk_analysis.damage_description}</p>
+                                        <p style="margin: 10px 0 5px 0; font-size: 0.85em;"><strong>Bina Yapısı Dağılımı:</strong></p>
+                                        <p style="margin: 2px 0; font-size: 0.75em;">• Güçlendirilmiş: ${(city.building_risk_analysis.building_structure.reinforced * 100).toFixed(0)}%</p>
+                                        <p style="margin: 2px 0; font-size: 0.75em;">• Normal: ${(city.building_risk_analysis.building_structure.normal * 100).toFixed(0)}%</p>
+                                        <p style="margin: 2px 0; font-size: 0.75em;">• Zayıf: ${(city.building_risk_analysis.building_structure.weak * 100).toFixed(0)}%</p>
+                                        <p style="margin: 10px 0 5px 0; font-size: 0.85em;"><strong>Tahmini Etkilenen Binalar:</strong></p>
+                                        <p style="margin: 2px 0; font-size: 0.75em;">• Güçlendirilmiş: ${city.building_risk_analysis.affected_buildings_percent.reinforced}%</p>
+                                        <p style="margin: 2px 0; font-size: 0.75em;">• Normal: ${city.building_risk_analysis.affected_buildings_percent.normal}%</p>
+                                        <p style="margin: 2px 0; font-size: 0.75em;">• Zayıf: ${city.building_risk_analysis.affected_buildings_percent.weak}%</p>
+                                        <p style="margin: 5px 0; font-size: 0.75em; opacity: 0.9;">📌 Analiz: M${city.building_risk_analysis.based_on_earthquake.magnitude} deprem (${city.building_risk_analysis.based_on_earthquake.distance} km)</p>
+                                    </div>
+                                ` : ''}
                             </div>
                         </div>
                     `;
@@ -547,6 +564,82 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     });
     
+    // Tüm Türkiye Erken Uyarı Sistemi
+    const checkTurkeyWarningButton = document.getElementById('checkTurkeyWarningButton');
+    const turkeyWarningResult = document.getElementById('turkeyWarningResult');
+    
+    if (checkTurkeyWarningButton && turkeyWarningResult) {
+        checkTurkeyWarningButton.addEventListener('click', () => {
+            turkeyWarningResult.innerHTML = '<p>Tüm Türkiye erken uyarı durumu kontrol ediliyor...</p>';
+            turkeyWarningResult.style.display = 'block';
+            
+            fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'error') {
+                        turkeyWarningResult.innerHTML = `<p style="color: red;">Hata: ${data.message || 'Bilinmeyen hata'}</p>`;
+                        return;
+                    }
+                    
+                    let html = `
+                        <div style="background-color: #34495e; color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <h3 style="margin: 0 0 10px 0;">📊 Analiz Sonuçları</h3>
+                            <p style="margin: 5px 0;">Analiz Edilen İl Sayısı: <strong>${data.total_cities_analyzed}</strong></p>
+                            <p style="margin: 5px 0;">Uyarı Veren İl Sayısı: <strong>${data.cities_with_warnings}</strong></p>
+                        </div>
+                    `;
+                    
+                    if (data.cities_with_warnings === 0) {
+                        html += `
+                            <div style="background-color: #2ecc71; color: white; padding: 15px; border-radius: 8px;">
+                                <h3 style="margin: 0 0 10px 0;">✅ İyi Haber!</h3>
+                                <p style="margin: 5px 0;">Şu anda tüm Türkiye'de M ≥ 5.0 deprem riski tespit edilmedi.</p>
+                            </div>
+                        `;
+                    } else {
+                        html += '<div style="max-height: 600px; overflow-y: auto;">';
+                        
+                        // Sadece uyarı veren şehirleri göster
+                        Object.entries(data.active_warnings || {}).forEach(([city, warning]) => {
+                            let alertColor = '#2ecc71'; // Yeşil
+                            if (warning.alert_level === 'KRİTİK') alertColor = '#e74c3c'; // Kırmızı
+                            else if (warning.alert_level === 'YÜKSEK') alertColor = '#e67e22'; // Turuncu
+                            else if (warning.alert_level === 'ORTA') alertColor = '#f39c12'; // Sarı
+                            
+                            html += `
+                                <div style="background-color: ${alertColor}; color: white; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+                                    <h4 style="margin: 0 0 10px 0;">🚨 ${city.toUpperCase()}</h4>
+                                    <p style="margin: 5px 0; font-size: 1.2em;"><strong>Uyarı Seviyesi: ${warning.alert_level}</strong></p>
+                                    <p style="margin: 5px 0; font-size: 1.1em;">Tahmini Büyüklük: <strong>M${warning.predicted_magnitude || 'N/A'}</strong></p>
+                                    <p style="margin: 5px 0;">Uyarı Skoru: ${warning.alert_score}/1.0</p>
+                                    <p style="margin: 5px 0;">Tahmini Süre: <strong>${warning.time_to_event || 'Bilinmiyor'}</strong></p>
+                                    <p style="margin: 10px 0; font-size: 0.9em;">${warning.message}</p>
+                                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.3);">
+                                        <p style="margin: 3px 0; font-size: 0.85em;">• Son deprem sayısı: ${warning.recent_earthquakes}</p>
+                                        <p style="margin: 3px 0; font-size: 0.85em;">• Anomali tespit edildi: ${warning.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</p>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        html += '</div>';
+                    }
+                    
+                    turkeyWarningResult.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Türkiye erken uyarı hatası:', error);
+                    turkeyWarningResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+                });
+        });
+    }
+
     // İstanbul Erken Uyarı Sistemi
     checkIstanbulWarningButton.addEventListener('click', () => {
         istanbulWarningResult.innerHTML = '<p>İstanbul erken uyarı durumu kontrol ediliyor...</p>';

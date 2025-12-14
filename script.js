@@ -1,8 +1,12 @@
 // script.js
-// API URL'ini dinamik olarak belirle (localhost veya production)
+// API URL'ini dinamik olarak belirle
+const RENDER_BACKEND_URL = 'https://depremanaliz.onrender.com';
+
 const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:5000'
-    : window.location.origin; // Production'da aynı domain'i kullan
+    : (window.location.hostname.includes('github.io') 
+        ? RENDER_BACKEND_URL  // GitHub Pages'den Render.com backend'e bağlan
+        : window.location.origin); // Diğer durumlarda aynı domain'i kullan
 
 let mymap = null; 
 

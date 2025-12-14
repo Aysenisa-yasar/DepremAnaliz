@@ -476,6 +476,9 @@ def haversine(lat1, lon1, lat2, lon2):
 def calculate_clustering_risk(earthquakes):
     """ K-Means kümeleme algoritması kullanarak risk bölgelerini tespit eder. """
     
+    if not earthquakes or len(earthquakes) == 0:
+        return {"status": "low_activity", "risk_regions": []}
+    
     coords = []
     for eq in earthquakes:
         if eq.get('geojson') and eq['geojson'].get('coordinates'):
@@ -1388,24 +1391,16 @@ def get_risk_analysis():
     start_time = time.time()
     
     try:
-        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
-        if not earthquake_data:
-            return jsonify({
-                "status": "low_activity",
-                "risk_regions": [],
-                "fault_lines": TURKEY_FAULT_LINES,
-                "recent_earthquakes": [],
-                "message": "API'den veri alınamadı."
-            })
-    except Exception as e:
-        return jsonify({
-            "status": "low_activity",
-            "risk_regions": [],
-            "fault_lines": TURKEY_FAULT_LINES,
-            "recent_earthquakes": [],
-            "message": f"Veri kaynağına erişilemedi: {str(e)}"
-        })
-
+        # Deprem verilerini çek
+        try:
+            earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+            if not earthquake_data:
+                earthquake_data = []  # Boş liste ile devam et
+        except Exception as e:
+            print(f"[WARNING] API'den veri çekilemedi: {e}")
+            earthquake_data = []  # Boş liste ile devam et
+        
+        # Risk analizi yap
         try:
             risk_data = calculate_clustering_risk(earthquake_data)
             risk_data['fault_lines'] = TURKEY_FAULT_LINES
@@ -1417,6 +1412,8 @@ def get_risk_analysis():
             return jsonify(risk_data)
         except Exception as e:
             print(f"[ERROR] Risk analizi hesaplama hatası: {e}")
+            import traceback
+            traceback.print_exc()
             # Fallback: Sadece fault lines döndür
             return jsonify({
                 "status": "error",
@@ -1428,6 +1425,8 @@ def get_risk_analysis():
             
     except Exception as e:
         print(f"[ERROR] Beklenmeyen hata: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "status": "error",
             "risk_regions": [],

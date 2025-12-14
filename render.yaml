@@ -18,10 +18,7 @@ services:
       - key: USE_WHATSAPP_WEB
         value: "true"
       - key: WHATSAPP_WEB_SERVICE_URL
-        fromService:
-          type: web
-          name: whatsapp-service
-          property: host
+        sync: false
 
   - type: web
     name: whatsapp-service

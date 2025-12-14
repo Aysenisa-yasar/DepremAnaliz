@@ -417,6 +417,9 @@ def send_whatsapp_notification(recipient_number, body, location_url=None):
         print(f"[INFO] Twilio WhatsApp Sandbox modu aktif. Sadece sandbox'a kayıtlı numaralara mesaj gönderilebilir.")
         print(f"[INFO] Numara {recipient_number} sandbox'a kayıtlı değilse mesaj gönderilemez.")
         print(f"[INFO] Çözüm: Twilio Console > Messaging > WhatsApp Sandbox sayfasından 'join code' ile numarayı ekleyin.")
+        print(f"[INFO] Production moduna geçmek için: TWILIO_PRODUCTION_KURULUM.md dosyasına bakın.")
+    else:
+        print(f"[INFO] Twilio WhatsApp Production modu aktif. Tüm numaralara mesaj gönderilebilir.")
     
     try:
         # Client, Ortam Değişkenlerinden alınan SID ve Token ile başlatılır
@@ -2266,6 +2269,113 @@ def set_istanbul_alert():
 
 
 # --- ARKA PLAN BİLDİRİM KONTROLÜ ---
+
+def collect_training_data_continuously():
+    """ Arka planda sürekli çalışır, eğitim verisi toplar ve günceller. """
+    print("[VERI TOPLAMA] Sürekli veri toplama sistemi başlatıldı.")
+    
+    while True:
+        try:
+            # Her 30 dakikada bir veri topla
+            time.sleep(1800)  # 30 dakika = 1800 saniye
+            
+            print(f"[VERI TOPLAMA] Yeni veri toplama başlatıldı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Deprem verilerini çek
+            earthquakes = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+            if not earthquakes:
+                print("[VERI TOPLAMA] Veri çekilemedi, bir sonraki denemede tekrar denenilecek.")
+                continue
+            
+            # Mevcut tarihsel veriyi yükle
+            existing_data = []
+            if os.path.exists(EARTHQUAKE_HISTORY_FILE):
+                try:
+                    with open(EARTHQUAKE_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                except Exception as e:
+                    print(f"[VERI TOPLAMA] Mevcut veri yüklenemedi: {e}")
+                    existing_data = []
+            
+            # Mevcut verilerin ID'lerini topla (duplicate kontrolü için)
+            seen_ids = set()
+            for record in existing_data:
+                if 'features' in record:
+                    # Şehir bazlı kayıtlar için
+                    city = record.get('city', '')
+                    lat = record.get('lat', 0)
+                    lon = record.get('lon', 0)
+                    timestamp = record.get('timestamp', 0)
+                    record_id = f"{city}_{lat:.4f}_{lon:.4f}_{timestamp:.0f}"
+                    seen_ids.add(record_id)
+            
+            # Yeni eğitim verisi oluştur (tüm şehirler için)
+            new_training_data = []
+            cities_processed = 0
+            
+            # Tüm 81 il için veri oluştur
+            for city_name, city_data in TURKEY_CITIES.items():
+                city_lat = city_data['lat']
+                city_lon = city_data['lon']
+                
+                # Özellik çıkar
+                features = extract_features(earthquakes, city_lat, city_lon, time_window_hours=168)  # Son 7 gün
+                
+                if features and features.get('count', 0) > 0:
+                    # Risk skoru hesapla
+                    risk_result = predict_earthquake_risk(earthquakes, city_lat, city_lon)
+                    risk_score = risk_result.get('risk_score', 2.0)
+                    
+                    # Kayıt ID'si oluştur
+                    current_time = time.time()
+                    record_id = f"{city_name}_{city_lat:.4f}_{city_lon:.4f}_{current_time:.0f}"
+                    
+                    # Duplicate kontrolü (son 1 saat içinde aynı şehir için veri varsa atla)
+                    recent_record_exists = False
+                    for existing_record in existing_data[-100:]:  # Son 100 kayda bak
+                        if existing_record.get('city') == city_name:
+                            existing_timestamp = existing_record.get('timestamp', 0)
+                            if current_time - existing_timestamp < 3600:  # 1 saat içinde
+                                recent_record_exists = True
+                                break
+                    
+                    if not recent_record_exists:
+                        new_training_data.append({
+                            'city': city_name,
+                            'lat': city_lat,
+                            'lon': city_lon,
+                            'features': features,
+                            'risk_score': risk_score,
+                            'timestamp': current_time
+                        })
+                        cities_processed += 1
+            
+            # Yeni verileri mevcut veriye ekle
+            if new_training_data:
+                existing_data.extend(new_training_data)
+                
+                # Son 10,000 kaydı tut (dosya boyutunu kontrol altında tutmak için)
+                if len(existing_data) > 10000:
+                    existing_data = existing_data[-10000:]
+                    print(f"[VERI TOPLAMA] Veri seti 10,000 kayıtla sınırlandırıldı (en eski kayıtlar silindi).")
+                
+                # Veriyi kaydet
+                try:
+                    with open(EARTHQUAKE_HISTORY_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(existing_data, f, ensure_ascii=False, indent=2)
+                    
+                    print(f"[VERI TOPLAMA] ✅ {cities_processed} şehir için {len(new_training_data)} yeni eğitim verisi eklendi. Toplam: {len(existing_data)} kayıt")
+                except Exception as e:
+                    print(f"[VERI TOPLAMA] Veri kaydedilemedi: {e}")
+            else:
+                print(f"[VERI TOPLAMA] Yeni veri bulunamadı (tüm şehirler için son 1 saat içinde veri mevcut).")
+                
+        except Exception as e:
+            print(f"[VERI TOPLAMA] Hata: {e}")
+            import traceback
+            traceback.print_exc()
+            # Hata olsa bile devam et
+            continue
 
 def check_for_big_earthquakes():
     """ Arka planda sürekli çalışır, M >= 5.0 deprem olup olmadığını kontrol eder. """

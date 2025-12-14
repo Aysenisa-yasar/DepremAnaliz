@@ -597,56 +597,11 @@ def train_risk_prediction_model(earthquake_history):
     # Train-test split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
-    # Ensemble modeller - Büyük veri seti için optimize edilmiş hiperparametreler
-    n_samples = len(X_train)
-    
-    # Veri seti boyutuna göre hiperparametreleri ayarla
-    if n_samples > 10000:
-        # Büyük veri seti - daha derin ağaçlar, daha fazla estimator
-        n_estimators = 200
-        max_depth = 12
-        learning_rate = 0.05
-    elif n_samples > 5000:
-        # Orta veri seti
-        n_estimators = 150
-        max_depth = 10
-        learning_rate = 0.08
-    else:
-        # Küçük veri seti
-        n_estimators = 100
-        max_depth = 8
-        learning_rate = 0.1
-    
-    print(f"[MODEL AYARLARI] Veri seti: {n_samples} örnek, Estimators: {n_estimators}, Max Depth: {max_depth}")
-    
+    # Ensemble modeller
     models = {
-        'random_forest': RandomForestRegressor(
-            n_estimators=n_estimators, 
-            max_depth=max_depth, 
-            min_samples_split=5,
-            min_samples_leaf=2,
-            random_state=42,
-            n_jobs=-1
-        ),
-        'xgboost': xgb.XGBRegressor(
-            n_estimators=n_estimators, 
-            max_depth=max_depth, 
-            learning_rate=learning_rate,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-            n_jobs=-1
-        ),
-        'lightgbm': lgb.LGBMRegressor(
-            n_estimators=n_estimators, 
-            max_depth=max_depth, 
-            learning_rate=learning_rate,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-            n_jobs=-1,
-            verbose=-1
-        )
+        'random_forest': RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42),
+        'xgboost': xgb.XGBRegressor(n_estimators=100, max_depth=6, learning_rate=0.1, random_state=42),
+        'lightgbm': lgb.LGBMRegressor(n_estimators=100, max_depth=6, learning_rate=0.1, random_state=42)
     }
     
     trained_models = {}

@@ -1,12 +1,8 @@
 // script.js
-// API URL'ini dinamik olarak belirle
-const RENDER_BACKEND_URL = 'https://depremanaliz.onrender.com';
-
+// API URL'ini dinamik olarak belirle (localhost veya production)
 const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:5000'
-    : (window.location.hostname.includes('github.io') 
-        ? RENDER_BACKEND_URL  // GitHub Pages'den Render.com backend'e bağlan
-        : window.location.origin); // Diğer durumlarda aynı domain'i kullan
+    : window.location.origin; // Production'da aynı domain'i kullan
 
 let mymap = null; 
 
@@ -68,6 +64,28 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(data => {
                 listContainer.innerHTML = '';
                 let bounds = [];
+                
+                // Hata kontrolü
+                if (data.error) {
+                    listContainer.innerHTML = `<p style="color: red;">Hata: ${data.error}</p>`;
+                    // Yine de fay hatlarını göster
+                    if (data.fault_lines && data.fault_lines.length > 0) {
+                        data.fault_lines.forEach(fault => {
+                            const faultCoords = fault.coords.map(coord => [coord[0], coord[1]]);
+                            L.polyline(faultCoords, {
+                                color: '#DC143C',
+                                weight: 4,
+                                opacity: 0.8,
+                                dashArray: '10, 5'
+                            }).addTo(mymap).bindPopup(`<b>${fault.name}</b><br>⚠️ Aktif Fay Hattı`);
+                            bounds.push(...faultCoords);
+                        });
+                    }
+                    if (bounds.length > 0) {
+                        mymap.fitBounds(bounds, { padding: [50, 50] });
+                    }
+                    return;
+                }
                 
                 // 1. Aktif fay hatlarını haritaya ekle (ÖNCE - en altta kalacak)
                 if (data.fault_lines && data.fault_lines.length > 0) {

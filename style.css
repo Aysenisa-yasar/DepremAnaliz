@@ -336,7 +336,7 @@ input[type="tel"], input[type="number"], select {
     font-size: 1em;
     transition: all 0.3s;
     background: rgba(0, 0, 0, 0.5);
-    color: var(--color-text);
+    color: #000000 !important;
 }
 
 input[type="tel"]:focus, input[type="number"]:focus, select:focus {
@@ -427,7 +427,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
 
 .message.bot .message-bubble {
     background: rgba(255, 23, 68, 0.2);
-    color: var(--color-text);
+    color: #000000 !important;
     box-shadow: var(--shadow-soft);
 }
 
@@ -451,7 +451,7 @@ input[type="tel"]:focus, input[type="number"]:focus, select:focus {
     border-radius: 25px;
     font-size: 0.95em;
     background: rgba(0, 0, 0, 0.5);
-    color: var(--color-text);
+    color: #000000 !important;
 }
 
 .chatbot-send {

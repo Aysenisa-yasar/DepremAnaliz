@@ -50,6 +50,42 @@ function getRiskColor(score) {
 document.addEventListener('DOMContentLoaded', () => {
     // API URL'ini dinamik olarak kullan (localhost veya production)
     const RENDER_API_BASE_URL = API_URL;
+    
+    // Render.com'u uyanık tutmak için düzenli ping (her 10 dakikada bir)
+    // Free plan'da 15 dakika inaktiflikten sonra uyku moduna geçer
+    if (RENDER_API_BASE_URL.includes('render.com') || RENDER_API_BASE_URL.includes('onrender.com')) {
+        function pingServer() {
+            // Health check endpoint'i kullan (en hafif endpoint)
+            fetch(`${RENDER_API_BASE_URL}/api/health`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors'
+            })
+            .then(response => {
+                if (response.ok) {
+                    console.log('[PING] ✅ Render.com uyanık tutuldu');
+                } else {
+                    console.log('[PING] ⚠️ Sunucu yanıt vermedi');
+                }
+            })
+            .catch(error => {
+                // İlk ping başarısız olabilir (sunucu uyku modunda)
+                // Bu normal, sonraki ping'ler başarılı olacak
+                console.log('[PING] ⏳ Sunucu uyanıyor...');
+            });
+        }
+        
+        // İlk ping'i hemen gönder
+        setTimeout(pingServer, 2000); // 2 saniye sonra
+        
+        // Sonra her 10 dakikada bir ping gönder (600000 ms = 10 dakika)
+        // 15 dakika uyku moduna geçmeden önce 10 dakikada bir ping yeterli
+        setInterval(pingServer, 600000); // 10 dakika = 600000 ms
+        
+        console.log('[PING] Render.com uyanık tutma sistemi aktif (her 10 dakikada bir ping)');
+    }
     const apiURL = `${RENDER_API_BASE_URL}/api/risk`; 
     
     const listContainer = document.getElementById('earthquake-list');

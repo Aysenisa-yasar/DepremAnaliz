@@ -1378,8 +1378,13 @@ def anomaly_detection():
 
 @app.route('/api/fault-lines', methods=['GET'])
 def get_fault_lines():
-    """ Türkiye'nin aktif fay hatlarını döndürür. """
-    return jsonify({"fault_lines": TURKEY_FAULT_LINES})
+    """ Türkiye'nin aktif fay hatlarını döndürür. (Ayrıca Render.com uyanık tutma için kullanılır) """
+    return jsonify({"fault_lines": TURKEY_FAULT_LINES, "status": "ok"})
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """ Health check endpoint - Render.com uyanık tutma için """
+    return jsonify({"status": "ok", "message": "Server is awake"}), 200
 
 @app.route('/api/city-damage-analysis', methods=['GET'])
 def city_damage_analysis():

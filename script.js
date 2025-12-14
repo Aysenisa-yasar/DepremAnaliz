@@ -51,6 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const cityDamageResult = document.getElementById('cityDamageResult');
     const checkIstanbulWarningButton = document.getElementById('checkIstanbulWarningButton');
     const istanbulWarningResult = document.getElementById('istanbulWarningResult');
+    const collectAllDataButton = document.getElementById('collectAllDataButton');
+    const trainModelsButton = document.getElementById('trainModelsButton');
+    const dataCollectionResult = document.getElementById('dataCollectionResult');
 
     let userCoords = null; 
 

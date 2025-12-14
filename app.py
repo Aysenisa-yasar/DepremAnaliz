@@ -1284,11 +1284,19 @@ def get_fault_lines():
 def city_damage_analysis():
     """ 5+ depremler için il bazında otomatik yapay zeka destekli hasar tahmini yapar. """
     try:
-        response = requests.get(KANDILLI_API, timeout=10)
-        response.raise_for_status() 
-        earthquake_data = response.json().get('result', [])
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Veri kaynağına erişilemedi. {e}"}), 500
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+        if not earthquake_data:
+            return jsonify({
+                "status": "no_major_earthquakes",
+                "message": "API'den veri alınamadı.",
+                "city_damages": []
+            })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Veri kaynağına erişilemedi: {str(e)}",
+            "city_damages": []
+        })
     
     # 5+ depremleri filtrele
     major_earthquakes = [eq for eq in earthquake_data if eq.get('mag', 0) >= 5.0]
@@ -1415,10 +1423,10 @@ def check_for_big_earthquakes():
         time.sleep(60) 
 
         try:
-            earthquakes = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=1, timeout=30)
-            if not earthquakes:
-                continue
-        except Exception:
+            response = requests.get(KANDILLI_API, timeout=5)
+            response.raise_for_status() 
+            earthquakes = response.json().get('result', [])
+        except requests.exceptions.RequestException:
             continue
         
         # İstanbul erken uyarı kontrolü

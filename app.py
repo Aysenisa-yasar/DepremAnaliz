@@ -151,6 +151,9 @@ EARTHQUAKE_HISTORY_FILE = 'earthquake_history.json'
 MODEL_DIR = 'ml_models'
 ISTANBUL_ALERT_HISTORY = deque(maxlen=1000)  # Son 1000 deprem verisi
 
+# Chatbot context memory (session bazlı)
+chatbot_contexts = {}  # {session_id: {'history': [], 'user_mood': None, 'topics': []}}
+
 # Model dosyaları
 RISK_PREDICTION_MODEL_FILE = f'{MODEL_DIR}/risk_prediction_model.pkl'
 ISTANBUL_EARLY_WARNING_MODEL_FILE = f'{MODEL_DIR}/istanbul_early_warning_model.pkl'
@@ -2361,7 +2364,7 @@ def city_damage_analysis():
 
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
-    """ Gelişmiş deprem asistanı chatbot endpoint'i. """
+    """ Gelişmiş AI destekli deprem asistanı chatbot endpoint'i. """
     try:
         data = request.get_json()
         if not data:
@@ -2371,7 +2374,46 @@ def chatbot():
         if not message:
             return jsonify({"response": "Lütfen bir mesaj yazın."}), 400
         
+        # Session ID (frontend'den gelirse kullan, yoksa oluştur)
+        session_id = data.get('session_id', 'default')
+        if session_id not in chatbot_contexts:
+            chatbot_contexts[session_id] = {
+                'history': [],
+                'user_mood': None,
+                'topics': [],
+                'last_interaction': time.time()
+            }
+        
+        context = chatbot_contexts[session_id]
+        
+        # Ruh hali analizi (sentiment analysis)
+        try:
+            blob = TextBlob(message)
+            sentiment_score = blob.sentiment.polarity  # -1 (negatif) ile +1 (pozitif) arası
+            
+            if sentiment_score > 0.3:
+                mood = 'pozitif'
+            elif sentiment_score < -0.3:
+                mood = 'negatif'
+            else:
+                mood = 'nötr'
+            
+            context['user_mood'] = mood
+        except:
+            mood = 'nötr'
+        
         message_lower = message.lower()
+        
+        # Konuşma geçmişine ekle
+        context['history'].append({
+            'user': message,
+            'timestamp': time.time(),
+            'mood': mood
+        })
+        
+        # Son 10 mesajı tut
+        if len(context['history']) > 10:
+            context['history'] = context['history'][-10:]
         
         # Gelişmiş rule-based AI - Çoklu anahtar kelime desteği ve gerçek zamanlı veri
         responses = {
@@ -2546,8 +2588,86 @@ def chatbot():
                     response_text = f'❌ Veri seti bilgileri alınırken hata oluştu: {str(e)}'
             
             elif special_type == 'weather':
-                # Hava durumu bilgileri (genel bilgi - gerçek API entegrasyonu için OpenWeatherMap gerekli)
-                response_text = '🌤️ GÜNLÜK HAVA DURUMU BİLGİLERİ:\n\n📌 Hava durumu bilgileri için:\n• Meteoroloji Genel Müdürlüğü: mgm.gov.tr\n• Hava durumu uygulamaları kullanabilirsiniz\n• Radyo/TV hava durumu bültenlerini takip edin\n\n⚠️ ÖNEMLİ:\n• Kötü hava koşulları (şiddetli yağmur, kar, fırtına) deprem sonrası arama-kurtarma çalışmalarını zorlaştırabilir\n• Acil durum çantanızda yağmurluk ve sıcak tutacak kıyafetler bulundurun\n• Kış aylarında battaniye ve sıcak içecek önemlidir\n\n💡 Deprem sonrası hava durumunu takip etmek hayati önem taşır!'
+                # Hava durumu bilgileri - Gerçek zamanlı API entegrasyonu
+                try:
+                    # Mesajdan şehir adını çıkar
+                    city_found = None
+                    for city_name in TURKEY_CITIES.keys():
+                        if city_name.lower() in message_lower:
+                            city_found = city_name
+                            break
+                    
+                    if city_found:
+                        city_data = TURKEY_CITIES[city_found]
+                        lat = city_data['lat']
+                        lon = city_data['lon']
+                        
+                        # OpenWeatherMap API (ücretsiz tier)
+                        # Not: API key environment variable'dan alınmalı
+                        weather_api_key = os.environ.get('OPENWEATHER_API_KEY', '')
+                        if weather_api_key:
+                            weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={weather_api_key}&units=metric&lang=tr"
+                            try:
+                                weather_response = requests.get(weather_url, timeout=5)
+                                if weather_response.status_code == 200:
+                                    weather_data = weather_response.json()
+                                    temp = weather_data['main']['temp']
+                                    feels_like = weather_data['main']['feels_like']
+                                    humidity = weather_data['main']['humidity']
+                                    description = weather_data['weather'][0]['description'].title()
+                                    wind_speed = weather_data.get('wind', {}).get('speed', 0)
+                                    
+                                    response_text = f'🌤️ {city_found.upper()} HAVA DURUMU (Güncel):\n\n'
+                                    response_text += f'🌡️ Sıcaklık: {temp:.1f}°C (Hissedilen: {feels_like:.1f}°C)\n'
+                                    response_text += f'☁️ Durum: {description}\n'
+                                    response_text += f'💧 Nem: {humidity}%\n'
+                                    response_text += f'💨 Rüzgar: {wind_speed:.1f} m/s\n\n'
+                                    response_text += '⚠️ DEPREM İLE İLİŞKİSİ:\n'
+                                    if 'yağmur' in description.lower() or 'rain' in description.lower():
+                                        response_text += '• Yağmurlu hava deprem sonrası arama-kurtarma çalışmalarını zorlaştırabilir\n'
+                                    if temp < 5:
+                                        response_text += '• Soğuk hava acil durum çantanızda sıcak tutacak kıyafetler gerektirir\n'
+                                    if wind_speed > 10:
+                                        response_text += '• Güçlü rüzgar çadır kurulumunu zorlaştırabilir\n'
+                                    response_text += '\n💡 Hava durumunu sürekli takip edin!'
+                                else:
+                                    raise Exception("API yanıt hatası")
+                            except Exception as e:
+                                print(f"[WEATHER API] Hata: {e}")
+                                # Fallback
+                                response_text = f'🌤️ {city_found.upper()} HAVA DURUMU:\n\n'
+                                response_text += '📌 Güncel hava durumu için:\n'
+                                response_text += '• Meteoroloji Genel Müdürlüğü: mgm.gov.tr\n'
+                                response_text += '• Hava durumu uygulamaları\n'
+                                response_text += f'• {city_found} için hava durumu takibi yapın\n\n'
+                                response_text += '⚠️ Kötü hava koşulları deprem sonrası çalışmaları etkileyebilir!'
+                        else:
+                            # API key yok, genel bilgi
+                            response_text = f'🌤️ {city_found.upper()} HAVA DURUMU:\n\n'
+                            response_text += '📌 Güncel hava durumu için:\n'
+                            response_text += '• Meteoroloji Genel Müdürlüğü: mgm.gov.tr\n'
+                            response_text += '• Hava durumu uygulamaları\n'
+                            response_text += f'• {city_found} için hava durumu takibi yapın\n\n'
+                            response_text += '⚠️ ÖNEMLİ:\n'
+                            response_text += '• Kötü hava koşulları deprem sonrası arama-kurtarma çalışmalarını zorlaştırabilir\n'
+                            response_text += '• Acil durum çantanızda yağmurluk ve sıcak tutacak kıyafetler bulundurun\n'
+                            response_text += '• Kış aylarında battaniye ve sıcak içecek önemlidir\n'
+                            response_text += '\n💡 Deprem sonrası hava durumunu takip etmek hayati önem taşır!'
+                    else:
+                        # Genel hava durumu bilgisi
+                        response_text = '🌤️ GÜNLÜK HAVA DURUMU BİLGİLERİ:\n\n'
+                        response_text += '📌 Hava durumu bilgileri için:\n'
+                        response_text += '• Meteoroloji Genel Müdürlüğü: mgm.gov.tr\n'
+                        response_text += '• Hava durumu uygulamaları kullanabilirsiniz\n'
+                        response_text += '• Radyo/TV hava durumu bültenlerini takip edin\n\n'
+                        response_text += '💡 Belirli bir şehir için sorabilirsiniz (örn: "İstanbul hava durumu", "Konya hava nasıl")\n\n'
+                        response_text += '⚠️ ÖNEMLİ:\n'
+                        response_text += '• Kötü hava koşulları (şiddetli yağmur, kar, fırtına) deprem sonrası arama-kurtarma çalışmalarını zorlaştırabilir\n'
+                        response_text += '• Acil durum çantanızda yağmurluk ve sıcak tutacak kıyafetler bulundurun\n'
+                        response_text += '• Kış aylarında battaniye ve sıcak içecek önemlidir\n\n'
+                        response_text += '💡 Deprem sonrası hava durumunu takip etmek hayati önem taşır!'
+                except Exception as e:
+                    response_text = f'❌ Hava durumu bilgisi alınırken hata oluştu: {str(e)}'
             
             elif special_type == 'city_earthquake_status':
                 # İl bazlı deprem durumları - gerçek zamanlı veri
@@ -2619,18 +2739,137 @@ def chatbot():
                 except Exception as e:
                     response_text = f'❌ İl bazlı deprem durumu alınırken hata oluştu: {str(e)}'
         
-        # Soru tiplerine göre akıllı yanıt
+        # Gelişmiş akıllı yanıt sistemi
         if not response_text:
-            # Soru kelimeleri kontrolü
-            question_words = ['nedir', 'nasıl', 'ne', 'nerede', 'kim', 'hangi', 'kaç', 'neden', 'niçin', 'ne zaman']
-            has_question = any(qw in message_lower for qw in question_words)
+            # Sosyal medya analizi soruları
+            if any(word in message_lower for word in ['sosyal medya', 'twitter', 'instagram', 'facebook', 'tweet', 'paylaşım', 'trend', 'gündem']):
+                response_text = '📱 SOSYAL MEDYA ANALİZİ:\n\n'
+                response_text += '🔍 Deprem ile ilgili sosyal medya analizi yapabilirim:\n'
+                response_text += '• Twitter/X\'te deprem gündemi\n'
+                response_text += '• Instagram\'da deprem paylaşımları\n'
+                response_text += '• Facebook\'ta deprem grupları\n'
+                response_text += '• Trend analizi\n\n'
+                response_text += '💡 Örnek sorular:\n'
+                response_text += '• "Twitter\'da deprem gündemi ne?"\n'
+                response_text += '• "Deprem ile ilgili son trendler"\n'
+                response_text += '• "Sosyal medyada deprem konuşmaları"\n\n'
+                response_text += '⚠️ Not: Gerçek zamanlı sosyal medya analizi için API entegrasyonu gereklidir.'
             
-            if has_question:
-                response_text = '🤔 Bu sorunuzu tam olarak anlayamadım. Şu konularda size yardımcı olabilirim:\n\n• 🔍 Risk analizi ve tahmini nasıl yapılır?\n• 📊 Son depremler nerede görüntülenir?\n• 🛡️ Deprem sırasında ne yapmalıyım?\n• 🏛️ İstanbul erken uyarı sistemi nasıl çalışır?\n• 📱 WhatsApp bildirimleri nasıl ayarlanır?\n• 🗺️ Fay hatları nerede?\n• 🤖 Sistem nasıl çalışır?\n\nLütfen daha spesifik bir soru sorun!'
+            # Ruh hali analizi soruları
+            elif any(word in message_lower for word in ['ruh hali', 'duygu', 'hissediyorum', 'nasıl hissediyorum', 'mood', 'duygusal', 'stres', 'kaygı', 'endişe', 'korku']):
+                current_mood = context.get('user_mood', 'nötr')
+                if current_mood == 'negatif':
+                    response_text = '😔 Ruh halinizi anlıyorum. Deprem konusunda endişeli olmanız normal.\n\n'
+                    response_text += '💚 ÖNERİLER:\n'
+                    response_text += '• Hazırlık yapmak endişelerinizi azaltır\n'
+                    response_text += '• Acil durum planı yapın\n'
+                    response_text += '• Aile ile konuşun\n'
+                    response_text += '• Profesyonel destek alın (gerekirse)\n'
+                    response_text += '• Doğru bilgi kaynaklarından bilgi alın\n\n'
+                    response_text += '🛡️ Hazırlık yapmak sizi güçlendirir!'
+                elif current_mood == 'pozitif':
+                    response_text = '😊 Pozitif yaklaşımınız harika! Hazırlıklı olmak önemli.\n\n'
+                    response_text += '✅ Devam edin:\n'
+                    response_text += '• Acil durum çantanızı hazırlayın\n'
+                    response_text += '• Aile planınızı gözden geçirin\n'
+                    response_text += '• Bilgilenmeye devam edin\n\n'
+                    response_text += '💪 Hazırlık = Güvenlik!'
+                else:
+                    response_text = '🤔 Ruh halinizi analiz ediyorum...\n\n'
+                    response_text += '💡 Deprem konusunda bilgilenmek ve hazırlık yapmak önemlidir.\n'
+                    response_text += 'Size nasıl yardımcı olabilirim?'
+            
+            # Genel sohbet ve akıllı yanıtlar
+            elif any(word in message_lower for word in ['nasılsın', 'ne yapıyorsun', 'ne haber', 'naber', 'iyi misin']):
+                response_text = '😊 İyiyim, teşekkürler! Size deprem güvenliği konusunda yardımcı olmak için buradayım.\n\n'
+                response_text += 'Size nasıl yardımcı olabilirim?\n'
+                response_text += '• 🔍 Risk analizi\n'
+                response_text += '• 📊 Deprem bilgileri\n'
+                response_text += '• 🛡️ Güvenlik önlemleri\n'
+                response_text += '• 🌤️ Hava durumu\n'
+                response_text += '• 📱 Sosyal medya analizi\n'
+                response_text += '• 💭 Ruh hali analizi\n'
+                response_text += '• Ve daha fazlası!'
+            
+            # Soru tiplerine göre akıllı yanıt
             else:
-                response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum. Size şunlar hakkında yardımcı olabilirim:\n\n• 🔍 Risk analizi ve tahmini\n• 📊 Deprem bilgileri ve haritalar\n• 🛡️ Güvenlik önlemleri\n• 🏛️ İstanbul erken uyarı sistemi\n• 📱 WhatsApp bildirimleri\n• 🗺️ Fay hatları\n• 🤖 Makine öğrenmesi ve sistem\n• 📏 Deprem büyüklüğü ve derinlik\n• 🏙️ İl bazında analiz\n\nLütfen bu konulardan birini sorun!'
+                question_words = ['nedir', 'nasıl', 'ne', 'nerede', 'kim', 'hangi', 'kaç', 'neden', 'niçin', 'ne zaman']
+                has_question = any(qw in message_lower for qw in question_words)
+                
+                if has_question:
+                    response_text = '🤔 Bu sorunuzu tam olarak anlayamadım. Şu konularda size yardımcı olabilirim:\n\n'
+                    response_text += '• 🔍 Risk analizi ve tahmini nasıl yapılır?\n'
+                    response_text += '• 📊 Son depremler nerede görüntülenir?\n'
+                    response_text += '• 🛡️ Deprem sırasında ne yapmalıyım?\n'
+                    response_text += '• 🏛️ İstanbul erken uyarı sistemi nasıl çalışır?\n'
+                    response_text += '• 📱 WhatsApp bildirimleri nasıl ayarlanır?\n'
+                    response_text += '• 🗺️ Fay hatları nerede?\n'
+                    response_text += '• 🤖 Sistem nasıl çalışır?\n'
+                    response_text += '• 🌤️ Hava durumu bilgileri\n'
+                    response_text += '• 📱 Sosyal medya analizi\n'
+                    response_text += '• 💭 Ruh hali analizi\n\n'
+                    response_text += 'Lütfen daha spesifik bir soru sorun!'
+                else:
+                    # Context-aware yanıt
+                    if context['history']:
+                        last_topic = context['history'][-1].get('user', '')
+                        if 'deprem' in last_topic.lower():
+                            response_text = '💬 Deprem konusunda devam edelim. Size nasıl yardımcı olabilirim?\n\n'
+                            response_text += '• Son depremler hakkında bilgi\n'
+                            response_text += '• Risk analizi\n'
+                            response_text += '• Güvenlik önlemleri\n'
+                            response_text += '• Erken uyarı sistemi'
+                        else:
+                            response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum.\n\n'
+                            response_text += 'Size şunlar hakkında yardımcı olabilirim:\n\n'
+                            response_text += '• 🔍 Risk analizi ve tahmini\n'
+                            response_text += '• 📊 Deprem bilgileri ve haritalar\n'
+                            response_text += '• 🛡️ Güvenlik önlemleri\n'
+                            response_text += '• 🏛️ İstanbul erken uyarı sistemi\n'
+                            response_text += '• 📱 WhatsApp bildirimleri\n'
+                            response_text += '• 🗺️ Fay hatları\n'
+                            response_text += '• 🤖 Makine öğrenmesi ve sistem\n'
+                            response_text += '• 📏 Deprem büyüklüğü ve derinlik\n'
+                            response_text += '• 🏙️ İl bazında analiz\n'
+                            response_text += '• 🌤️ Hava durumu\n'
+                            response_text += '• 📱 Sosyal medya analizi\n'
+                            response_text += '• 💭 Ruh hali analizi\n\n'
+                            response_text += 'Lütfen bu konulardan birini sorun!'
+                    else:
+                        response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum.\n\n'
+                        response_text += 'Size şunlar hakkında yardımcı olabilirim:\n\n'
+                        response_text += '• 🔍 Risk analizi ve tahmini\n'
+                        response_text += '• 📊 Deprem bilgileri ve haritalar\n'
+                        response_text += '• 🛡️ Güvenlik önlemleri\n'
+                        response_text += '• 🏛️ İstanbul erken uyarı sistemi\n'
+                        response_text += '• 📱 WhatsApp bildirimleri\n'
+                        response_text += '• 🗺️ Fay hatları\n'
+                        response_text += '• 🤖 Makine öğrenmesi ve sistem\n'
+                        response_text += '• 📏 Deprem büyüklüğü ve derinlik\n'
+                        response_text += '• 🏙️ İl bazında analiz\n'
+                        response_text += '• 🌤️ Hava durumu\n'
+                        response_text += '• 📱 Sosyal medya analizi\n'
+                        response_text += '• 💭 Ruh hali analizi\n\n'
+                        response_text += 'Lütfen bu konulardan birini sorun!'
         
-        return jsonify({"response": response_text})
+        # Ruh haline göre yanıtı özelleştir
+        if context.get('user_mood') == 'negatif' and '😔' not in response_text:
+            response_text = '💚 ' + response_text
+        
+        # Konuşma geçmişine yanıtı ekle
+        context['history'].append({
+            'bot': response_text,
+            'timestamp': time.time()
+        })
+        
+        # Son güncelleme zamanı
+        context['last_interaction'] = time.time()
+        
+        return jsonify({
+            "response": response_text,
+            "mood": context.get('user_mood', 'nötr'),
+            "session_id": session_id
+        })
         
     except Exception as e:
         print(f"[ERROR] Chatbot hatası: {e}")

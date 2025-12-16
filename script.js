@@ -138,7 +138,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const getLocationButton = document.getElementById('getLocationButton');
     const saveSettingsButton = document.getElementById('saveSettingsButton');
-    // WhatsApp QR kod butonları kaldırıldı
+    const getOptInLinkButton = document.getElementById('getOptInLinkButton');
+    const optInLinkDisplay = document.getElementById('optInLinkDisplay');
+    const optInLink = document.getElementById('optInLink');
     const locationStatus = document.getElementById('locationStatus');
     const numberInput = document.getElementById('numberInput');
     
@@ -434,6 +436,89 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Meta WhatsApp Opt-In Link
+    if (getOptInLinkButton) {
+        getOptInLinkButton.addEventListener('click', () => {
+            getOptInLinkButton.disabled = true;
+            getOptInLinkButton.textContent = '⏳ Link Yükleniyor...';
+            
+            fetch(`${API_URL}/api/get-opt-in-link`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                getOptInLinkButton.disabled = false;
+                getOptInLinkButton.textContent = '🔗 Session Açma Linkini Al';
+                
+                if (data.success && data.opt_in_link) {
+                    optInLink.href = data.opt_in_link;
+                    optInLink.textContent = data.opt_in_link;
+                    optInLinkDisplay.style.display = 'block';
+                    
+                    // Modal ile detaylı talimatlar göster
+                    const instructions = data.instructions ? data.instructions.map(step => `<li style="margin: 8px 0; text-align: left;">${step}</li>`).join('') : '';
+                    openModal('📱 WhatsApp Session Açma (Opt-In)', `
+                        <div style="text-align: center; padding: 20px;">
+                            <h3 style="margin-bottom: 20px; color: #ffffff;">Session Açın ve Bildirimleri Alın</h3>
+                            <div style="background: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; border-radius: 15px; padding: 20px; margin: 20px 0;">
+                                <p style="margin: 0 0 15px 0; color: #2ecc71; font-weight: 600; font-size: 1.1em;">
+                                    ✅ Bu işlem sadece bir kez yapılır!
+                                </p>
+                                <a href="${data.opt_in_link}" target="_blank" style="display: inline-block; background: #2ecc71; color: white; padding: 15px 30px; border-radius: 10px; text-decoration: none; font-weight: 600; margin: 10px 0;">
+                                    🔗 WhatsApp'ta Aç ve "basla" Yaz
+                                </a>
+                            </div>
+                            ${instructions ? `
+                                <div style="background: rgba(52, 73, 94, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 20px; margin: 20px 0; text-align: left;">
+                                    <h4 style="margin: 0 0 15px 0; color: #ffffff; font-size: 1.1em;">📋 Adım Adım:</h4>
+                                    <ol style="margin: 0; padding-left: 20px; color: rgba(255, 255, 255, 0.9); line-height: 1.8;">
+                                        ${instructions}
+                                    </ol>
+                                </div>
+                            ` : ''}
+                            <div style="background: rgba(243, 156, 18, 0.2); border: 1px solid #f39c12; border-radius: 10px; padding: 15px; margin: 20px 0;">
+                                <p style="margin: 0; color: #f39c12; font-size: 0.95em;">
+                                    ⚠️ ÖNEMLİ: Session açtıktan sonra 24 saat boyunca serbest metin bildirimleri alabilirsiniz!
+                                </p>
+                                <p style="margin: 10px 0 0 0; color: rgba(243, 156, 18, 0.9); font-size: 0.85em;">
+                                    💡 24 saat sonra tekrar session açmanız gerekebilir (Meta WhatsApp kuralları).
+                                </p>
+                            </div>
+                        </div>
+                    `);
+                } else {
+                    openModal('📱 Opt-In Link Hatası', `
+                        <div style="text-align: center; padding: 20px;">
+                            <p style="color: #FF1744;">${data.message || 'Opt-in linki alınamadı.'}</p>
+                            <p style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-top: 10px;">
+                                Meta WhatsApp API ayarları yapılmamış olabilir.
+                            </p>
+                        </div>
+                    `);
+                }
+            })
+            .catch(error => {
+                console.error('Opt-in link hatası:', error);
+                getOptInLinkButton.disabled = false;
+                getOptInLinkButton.textContent = '🔗 Session Açma Linkini Al';
+                openModal('📱 Opt-In Link Hatası', `
+                    <div style="text-align: center; padding: 20px;">
+                        <p style="color: #FF1744;">Opt-in linki alınamadı.</p>
+                        <p style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-top: 10px;">
+                            Hata: ${error.message}
+                        </p>
+                    </div>
+                `);
+            });
+        });
+    }
 
     // Manuel hasar tahmini kaldırıldı - otomatik il bazında analiz kullanılıyor
     

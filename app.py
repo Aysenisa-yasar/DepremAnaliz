@@ -109,7 +109,16 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
 
-# WhatsApp Web servisi kaldırıldı - sadece Twilio kullanılıyor
+# --- META WHATSAPP BUSINESS API AYARLARI ---
+# Meta WhatsApp Business API için gerekli bilgiler (kalıcı token kullanılmalı)
+META_WHATSAPP_ACCESS_TOKEN = os.environ.get("META_WHATSAPP_ACCESS_TOKEN")
+META_WHATSAPP_PHONE_NUMBER_ID = os.environ.get("META_WHATSAPP_PHONE_NUMBER_ID", "833412653196098")
+META_WHATSAPP_API_VERSION = os.environ.get("META_WHATSAPP_API_VERSION", "v22.0")
+META_WHATSAPP_TEST_NUMBER = os.environ.get("META_WHATSAPP_TEST_NUMBER", "+15551679784")  # Test numarası (From)
+META_WHATSAPP_API_URL = f"https://graph.facebook.com/{META_WHATSAPP_API_VERSION}/{META_WHATSAPP_PHONE_NUMBER_ID}/messages"
+
+# Meta WhatsApp API kullanılabilir mi kontrolü
+USE_META_WHATSAPP = bool(META_WHATSAPP_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID)
 
 # --- KULLANICI AYARLARI (KALICI HAFIZA - JSON DOSYASI) ---
 USER_DATA_FILE = 'user_alerts.json'
@@ -406,11 +415,134 @@ TURKEY_CITIES = {
 
 # --- YARDIMCI FONKSİYONLAR ---
 
-def send_whatsapp_notification(recipient_number, body, location_url=None):
-    """ WhatsApp mesajı gönderir. Twilio kullanır.
+def send_whatsapp_via_meta_api(recipient_number, body, location_url=None):
+    """
+    Meta WhatsApp Business API ile serbest metin mesajı gönderir.
+    Kullanıcı daha önce session açmışsa (24 saat içinde) serbest metin gönderebilir.
     Returns: (success: bool, error_message: str veya None)
     """
-    # Twilio kontrolü
+    if not USE_META_WHATSAPP:
+        return False, "Meta WhatsApp API ayarları yapılmamış"
+    
+    try:
+        # Numara formatını düzelt (ülke kodu ile, + işareti olmadan)
+        clean_number = recipient_number.replace('+', '').replace(' ', '').replace('-', '')
+        
+        # Konum linki varsa mesaja ekle
+        if location_url:
+            body += f"\n\n📍 Konum: {location_url}"
+        
+        # Meta WhatsApp API payload
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": clean_number,
+            "type": "text",
+            "text": {
+                "body": body
+            }
+        }
+        
+        # Headers
+        headers = {
+            "Authorization": f"Bearer {META_WHATSAPP_ACCESS_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        # API çağrısı
+        response = requests.post(
+            META_WHATSAPP_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"[OK] Meta WhatsApp mesajı gönderildi: {recipient_number}")
+            print(f"[OK] Message ID: {result.get('messages', [{}])[0].get('id', 'N/A')}")
+            return True, None
+        else:
+            error_data = response.json() if response.text else {}
+            error_msg = error_data.get('error', {}).get('message', f"HTTP {response.status_code}")
+            error_code = error_data.get('error', {}).get('code', response.status_code)
+            
+            print(f"[ERROR] Meta WhatsApp API hatası: {error_msg} (Code: {error_code})")
+            
+            # Session açılmamış hatası (kullanıcı henüz mesaj atmamış)
+            if error_code == 131047 or "session" in error_msg.lower() or "24 hour" in error_msg.lower():
+                return False, "SESSION_REQUIRED"  # Özel hata kodu
+            
+            return False, error_msg
+            
+    except requests.exceptions.Timeout:
+        print("[ERROR] Meta WhatsApp API timeout")
+        return False, "API timeout"
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[ERROR] Meta WhatsApp API beklenmeyen hata: {error_msg}")
+        return False, f"Beklenmeyen hata: {error_msg}"
+
+def send_sms_via_twilio(recipient_number, body):
+    """
+    Twilio SMS API ile SMS gönderir (fallback için).
+    Returns: (success: bool, error_message: str veya None)
+    """
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
+        return False, "Twilio SMS ayarları yapılmamış"
+    
+    try:
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        
+        # Numara formatını düzelt
+        if not recipient_number.startswith('+'):
+            recipient_number = '+' + recipient_number.lstrip('0')
+        
+        # SMS gönder (Twilio'nun normal SMS numarası gerekli, WhatsApp numarası değil)
+        # Burada Twilio'nun SMS numarasını kullanmanız gerekir (TWILIO_SMS_FROM_NUMBER)
+        # Şimdilik Twilio WhatsApp numarasını kullanıyoruz (test için)
+        
+        message = client.messages.create(
+            body=body,
+            from_=TWILIO_WHATSAPP_NUMBER.replace('whatsapp:', ''),  # SMS için whatsapp: prefix'i kaldır
+            to=recipient_number
+        )
+        print(f"[OK] SMS gönderildi: {recipient_number}, SID: {message.sid}")
+        return True, None
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[ERROR] SMS gönderme hatası: {error_msg}")
+        return False, error_msg
+
+def send_whatsapp_notification(recipient_number, body, location_url=None):
+    """
+    WhatsApp mesajı gönderir. Önce Meta WhatsApp API dener, başarısız olursa SMS fallback.
+    Hybrid sistem: WhatsApp + SMS fallback
+    Returns: (success: bool, error_message: str veya None)
+    """
+    # ÖNCE Meta WhatsApp API dene (serbest metin - session açılmışsa)
+    if USE_META_WHATSAPP:
+        print("[INFO] Meta WhatsApp API deneniyor...")
+        success, error = send_whatsapp_via_meta_api(recipient_number, body, location_url)
+        
+        if success:
+            return True, None
+        
+        # Session açılmamışsa SMS fallback
+        if error == "SESSION_REQUIRED":
+            print("[INFO] WhatsApp session açılmamış, SMS fallback deneniyor...")
+            sms_success, sms_error = send_sms_via_twilio(recipient_number, body)
+            if sms_success:
+                return True, None
+            return False, f"WhatsApp session gerekli ve SMS gönderilemedi: {sms_error}"
+        
+        # Diğer hatalarda SMS fallback
+        print(f"[WARNING] Meta WhatsApp başarısız ({error}), SMS fallback deneniyor...")
+        sms_success, sms_error = send_sms_via_twilio(recipient_number, body)
+        if sms_success:
+            return True, None
+        return False, f"WhatsApp hatası: {error}, SMS hatası: {sms_error}"
+    
+    # Meta WhatsApp yoksa eski Twilio sistemini kullan
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_WHATSAPP_NUMBER:
         print("[WARNING] Twilio ayarlari yapilmamis! Ortam degiskenlerini kontrol edin.")
         print("  Gerekli: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER")
@@ -2199,6 +2331,35 @@ def chatbot():
     except Exception as e:
         print(f"[ERROR] Chatbot hatası: {e}")
         return jsonify({"response": "Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin."}), 500
+
+@app.route('/api/get-opt-in-link', methods=['GET'])
+def get_opt_in_link():
+    """
+    Meta WhatsApp için opt-in linki döndürür.
+    Kullanıcı bu linke tıklayıp 'basla' yazarsa 24 saat boyunca serbest metin gönderebiliriz.
+    """
+    if not USE_META_WHATSAPP:
+        return jsonify({
+            "success": False,
+            "message": "Meta WhatsApp API ayarları yapılmamış"
+        }), 503
+    
+    # Opt-in linki oluştur (wa.me formatında)
+    # Test numarası: +15551679784 -> 15551679784
+    test_number_clean = META_WHATSAPP_TEST_NUMBER.replace('+', '').replace(' ', '').replace('-', '')
+    opt_in_link = f"https://wa.me/{test_number_clean}?text=basla"
+    
+    return jsonify({
+        "success": True,
+        "opt_in_link": opt_in_link,
+        "test_number": META_WHATSAPP_TEST_NUMBER,
+        "message": "Bu linke tıklayıp 'basla' yazın. Sonra 24 saat boyunca serbest metin bildirimleri alabilirsiniz.",
+        "instructions": [
+            "1. Aşağıdaki linke tıklayın",
+            "2. WhatsApp'ta 'basla' yazın ve gönderin",
+            "3. Artık 24 saat boyunca serbest metin bildirimleri alabilirsiniz"
+        ]
+    })
 
 @app.route('/api/set-alert', methods=['POST'])
 def set_alert_settings():

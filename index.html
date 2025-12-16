@@ -117,20 +117,39 @@
                     </div>
                 </div>
                 <div class="info-box" style="margin-top: 20px;">
-                    <h4 style="margin: 0 0 10px 0; color: #ffffff;">📱 WhatsApp Bildirimleri (Twilio)</h4>
-                    <p style="margin: 5px 0; font-size: 0.9em; color: rgba(255, 255, 255, 0.7) !important;">
-                        Bildirim alabilmek için Twilio WhatsApp Sandbox'a katılmanız gerekiyor (ücretsiz).
+                    <h4 style="margin: 0 0 10px 0; color: #ffffff;">📱 WhatsApp Bildirimleri (Meta WhatsApp Business API)</h4>
+                    <p style="margin: 5px 0 15px 0; font-size: 0.9em; color: rgba(255, 255, 255, 0.9) !important;">
+                        <strong>YENİ:</strong> Meta WhatsApp Business API kullanıyoruz! Serbest metin bildirimleri için önce session açmanız gerekiyor.
                     </p>
-                    <ol style="margin: 10px 0; padding-left: 20px; font-size: 0.85em; color: rgba(255, 255, 255, 0.7);">
-                        <li>Twilio Console'a gidin: <a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">console.twilio.com</a></li>
-                        <li><strong>Messaging</strong> > <strong>Try it out</strong> > <strong>Send a WhatsApp message</strong></li>
-                        <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın (örn: <code>join abc-xyz</code>)</li>
-                        <li>WhatsApp'tan <strong>+1 415 523 8886</strong> numarasına bu kodu gönderin</li>
-                        <li>Onay mesajı gelecek: <strong>"You're all set!"</strong></li>
-                    </ol>
-                    <p style="margin: 10px 0 0 0; font-size: 0.8em; color: rgba(255, 255, 255, 0.6);">
-                        💡 Bu işlem sadece bir kez yapılır. Sandbox'a katıldıktan sonra tüm bildirimleri alabilirsiniz!
-                    </p>
+                    <div id="optInSection" style="background: rgba(46, 204, 113, 0.1); border: 1px solid rgba(46, 204, 113, 0.3); border-radius: 10px; padding: 15px; margin: 15px 0;">
+                        <h5 style="margin: 0 0 10px 0; color: #2ecc71; font-size: 1em;">✅ Adım 1: Session Açın (Opt-In)</h5>
+                        <p style="margin: 5px 0 10px 0; font-size: 0.85em; color: rgba(255, 255, 255, 0.8);">
+                            Aşağıdaki linke tıklayıp WhatsApp'ta <strong>"basla"</strong> yazın. Sonra 24 saat boyunca serbest metin bildirimleri alabilirsiniz.
+                        </p>
+                        <button id="getOptInLinkButton" class="btn-modern btn-primary" style="width: 100%; margin-bottom: 10px;">
+                            🔗 Session Açma Linkini Al
+                        </button>
+                        <div id="optInLinkDisplay" style="display: none; margin-top: 10px;">
+                            <a id="optInLink" href="#" target="_blank" style="color: #2ecc71; text-decoration: underline; word-break: break-all; display: block; margin: 5px 0;">
+                                Link yükleniyor...
+                            </a>
+                            <p style="margin: 5px 0 0 0; font-size: 0.8em; color: rgba(255, 255, 255, 0.7);">
+                                💡 Bu linke tıklayıp WhatsApp'ta "basla" yazın. Sonra bildirimler otomatik gelecek!
+                            </p>
+                        </div>
+                    </div>
+                    <div style="background: rgba(243, 156, 18, 0.1); border: 1px solid rgba(243, 156, 18, 0.3); border-radius: 10px; padding: 15px; margin: 15px 0;">
+                        <h5 style="margin: 0 0 10px 0; color: #f39c12; font-size: 1em;">📱 Alternatif: Twilio Sandbox</h5>
+                        <p style="margin: 5px 0; font-size: 0.85em; color: rgba(255, 255, 255, 0.7);">
+                            İsterseniz Twilio WhatsApp Sandbox'ı da kullanabilirsiniz (eski yöntem).
+                        </p>
+                        <ol style="margin: 10px 0; padding-left: 20px; font-size: 0.85em; color: rgba(255, 255, 255, 0.7);">
+                            <li>Twilio Console: <a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">console.twilio.com</a></li>
+                            <li><strong>Messaging</strong> > <strong>Try it out</strong> > <strong>Send a WhatsApp message</strong></li>
+                            <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın</li>
+                            <li>WhatsApp'tan <strong>+1 415 523 8886</strong> numarasına bu kodu gönderin</li>
+                        </ol>
+                    </div>
                 </div>
             </div>
         </div>

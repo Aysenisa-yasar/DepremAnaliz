@@ -2378,8 +2378,17 @@ def chatbot():
             # Erken uyarı
             ('erken uyarı', 'uyarı sistemi', 'önceden haber', 'tahmin', 'önceden bilmek'): '🚨 ERKEN UYARI SİSTEMİ:\n• İstanbul için özel gelişmiş sistem\n• Deprem öncesi sinyalleri tespit eder\n• Anomali tespiti ile olağandışı aktivite uyarısı\n• Uyarı seviyeleri: KRİTİK, YÜKSEK, ORTA\n• WhatsApp ile anında bildirim\n• Makine öğrenmesi ile yüksek doğruluk',
             
-            # İl soruları
-            ('ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il'): '🏙️ İL BAZINDA ANALİZ:\n• "İl Bazında Risk Analizi Yap" butonundan tüm illerin risk durumunu görebilirsiniz\n• Her il için:\n  - Risk skoru (0-100)\n  - Risk seviyesi\n  - Bina hasar analizi\n  - Fay hattı mesafesi\n  - Son deprem etkileri\n\nTürkiye\'nin 81 ili analiz edilir.',
+            # İl soruları - Gerçek zamanlı veri ile
+            ('ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il', 'il durumu', 'şehir durumu', 'il bazlı', 'şehir bazlı'): None,  # Özel işlem gerekiyor
+            
+            # Veri seti bilgileri
+            ('veri seti', 'dataset', 'eğitim verisi', 'veri seti bilgileri', 'veri durumu', 'model verisi', 'eğitim durumu', 'veri istatistikleri'): None,  # Özel işlem gerekiyor
+            
+            # Hava durumu
+            ('hava durumu', 'hava', 'weather', 'sıcaklık', 'yağmur', 'kar', 'rüzgar', 'günlük hava', 'bugün hava'): None,  # Özel işlem gerekiyor
+            
+            # Acil durum - Genişletilmiş
+            ('acil durum', 'acil', 'ne yapmalıyım', 'deprem anında', 'deprem oldu', 'şimdi ne yapmalı', 'acil çıkış', 'güvenli yer', 'toplanma alanı', 'acil telefon', '112', 'afad', 'kızılay'): '🚨 ACİL DURUM REHBERİ:\n\n📞 ACİL TELEFONLAR:\n• 112 - Acil Çağrı Merkezi\n• 110 - İtfaiye\n• 155 - Polis\n• 156 - Jandarma\n• AFAD: 1222\n• Kızılay: 444 0 186\n\n🏃 DEPREM ANINDA:\n• ÇÖK-KAPAN-TUTUN pozisyonu alın\n• Sağlam bir masa/sehpa altına girin\n• Pencerelerden, dolaplardan uzak durun\n• Asansör kullanmayın\n• Merdivenlerden uzak durun\n• Balkonlardan atlamayın\n\n🏃 DEPREM SONRASI:\n• Gaz, elektrik, su vanalarını kapatın\n• Açık alanlara çıkın (toplanma alanlarına)\n• Binalara girmeyin\n• Acil durum çantanızı alın\n• Telefon hatlarını gereksiz kullanmayın\n• Radyo dinleyin (AFAD, TRT)\n\n📦 ACİL DURUM ÇANTASI:\n• Su (3-4 litre)\n• Konserve yiyecekler\n• İlk yardım malzemeleri\n• Fener, pil, radyo\n• Önemli belgeler (fotokopi)\n• Nakit para\n• Battaniye\n• Hijyen malzemeleri',
             
             # Anomali
             ('anomali', 'olağandışı', 'normal değil', 'garip', 'anormal'): '🔍 ANOMALİ TESPİTİ:\n• Isolation Forest modeli ile anomali tespiti\n• Olağandışı deprem aktivitesi tespit edilir\n• Yüksek aktivite, büyük depremler, yakın mesafe kontrol edilir\n• Anomali tespit edildiğinde erken uyarı verilir\n• İstanbul erken uyarı sisteminde kullanılır',
@@ -2391,14 +2400,26 @@ def chatbot():
         # Çoklu anahtar kelime eşleştirme
         response_text = None
         matched_keywords = []
+        needs_special_processing = False
+        special_type = None
         
         for keywords, response in responses.items():
             for keyword in keywords:
                 if keyword in message_lower:
-                    response_text = response
+                    if response is None:  # Özel işlem gerekiyor
+                        needs_special_processing = True
+                        # Hangi özel işlem tipi?
+                        if keyword in ['veri seti', 'dataset', 'eğitim verisi', 'veri seti bilgileri', 'veri durumu', 'model verisi', 'eğitim durumu', 'veri istatistikleri']:
+                            special_type = 'dataset_info'
+                        elif keyword in ['hava durumu', 'hava', 'weather', 'sıcaklık', 'yağmur', 'kar', 'rüzgar', 'günlük hava', 'bugün hava']:
+                            special_type = 'weather'
+                        elif keyword in ['ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il', 'il durumu', 'şehir durumu', 'il bazlı', 'şehir bazlı']:
+                            special_type = 'city_earthquake_status'
+                    else:
+                        response_text = response
                     matched_keywords.append(keyword)
                     break
-            if response_text:
+            if response_text or needs_special_processing:
                 break
         
         # Eğer eşleşme yoksa, benzer kelimeleri kontrol et
@@ -2426,6 +2447,135 @@ def chatbot():
                 if pattern in message_lower:
                     response_text = response
                     break
+        
+        # Özel işlemler (veri seti, hava durumu, il bazlı deprem durumları)
+        if needs_special_processing:
+            if special_type == 'dataset_info':
+                # Veri seti bilgilerini al
+                try:
+                    if not os.path.exists(EARTHQUAKE_HISTORY_FILE):
+                        response_text = '📊 VERİ SETİ DURUMU:\n\n❌ Henüz veri seti oluşturulmamış.\n\n💡 Sistem otomatik olarak her 30 dakikada bir veri toplamaya başladığında burada görünecek.'
+                    else:
+                        file_size = os.path.getsize(EARTHQUAKE_HISTORY_FILE)
+                        file_size_kb = round(file_size / 1024, 2)
+                        
+                        with open(EARTHQUAKE_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                            history = json.load(f)
+                        
+                        if not history or len(history) == 0:
+                            response_text = '📊 VERİ SETİ DURUMU:\n\n⚠️ Veri seti boş.\n\n💡 Sistem otomatik olarak veri toplamaya devam ediyor.'
+                        else:
+                            total_records = len(history)
+                            cities = set()
+                            timestamps = []
+                            risk_scores = []
+                            
+                            for record in history:
+                                if 'city' in record:
+                                    cities.add(record['city'])
+                                if 'timestamp' in record:
+                                    timestamps.append(record['timestamp'])
+                                if 'risk_score' in record:
+                                    risk_scores.append(record['risk_score'])
+                            
+                            date_range_text = ''
+                            if timestamps:
+                                min_timestamp = min(timestamps)
+                                max_timestamp = max(timestamps)
+                                min_date = datetime.fromtimestamp(min_timestamp).strftime('%Y-%m-%d %H:%M')
+                                max_date = datetime.fromtimestamp(max_timestamp).strftime('%Y-%m-%d %H:%M')
+                                days_span = round((max_timestamp - min_timestamp) / 86400, 1)
+                                date_range_text = f'\n📅 Tarih Aralığı: {min_date} - {max_date} ({days_span} gün)'
+                            
+                            last_update_text = ''
+                            if timestamps:
+                                last_timestamp = max(timestamps)
+                                last_update = datetime.fromtimestamp(last_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                                last_update_text = f'\n🔄 Son Güncelleme: {last_update}'
+                            
+                            risk_stats_text = ''
+                            if risk_scores:
+                                risk_stats_text = f'\n📈 Risk Skoru: Min={min(risk_scores):.1f}, Max={max(risk_scores):.1f}, Ortalama={sum(risk_scores)/len(risk_scores):.1f}'
+                            
+                            model_status = '✅ Eğitilmiş' if os.path.exists(RISK_PREDICTION_MODEL_FILE) else '⚠️ Henüz eğitilmemiş'
+                            
+                            response_text = f'📊 EĞİTİM VERİ SETİ BİLGİLERİ:\n\n📊 Toplam Kayıt: {total_records:,}\n🏙️ Şehir Sayısı: {len(cities)}\n💾 Dosya Boyutu: {file_size_kb} KB{date_range_text}{last_update_text}{risk_stats_text}\n🤖 Model Durumu: {model_status}\n\n💡 Otomatik Eğitim: Model her 24 saatte bir veya veri seti 100, 500, 1000, 2000, 5000, 10000 kayıt eşiklerine ulaştığında otomatik olarak eğitilir.'
+                except Exception as e:
+                    response_text = f'❌ Veri seti bilgileri alınırken hata oluştu: {str(e)}'
+            
+            elif special_type == 'weather':
+                # Hava durumu bilgileri (genel bilgi - gerçek API entegrasyonu için OpenWeatherMap gerekli)
+                response_text = '🌤️ GÜNLÜK HAVA DURUMU BİLGİLERİ:\n\n📌 Hava durumu bilgileri için:\n• Meteoroloji Genel Müdürlüğü: mgm.gov.tr\n• Hava durumu uygulamaları kullanabilirsiniz\n• Radyo/TV hava durumu bültenlerini takip edin\n\n⚠️ ÖNEMLİ:\n• Kötü hava koşulları (şiddetli yağmur, kar, fırtına) deprem sonrası arama-kurtarma çalışmalarını zorlaştırabilir\n• Acil durum çantanızda yağmurluk ve sıcak tutacak kıyafetler bulundurun\n• Kış aylarında battaniye ve sıcak içecek önemlidir\n\n💡 Deprem sonrası hava durumunu takip etmek hayati önem taşır!'
+            
+            elif special_type == 'city_earthquake_status':
+                # İl bazlı deprem durumları - gerçek zamanlı veri
+                try:
+                    earthquakes = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+                    if not earthquakes:
+                        response_text = '⚠️ Şu anda deprem verileri alınamıyor. Lütfen daha sonra tekrar deneyin.'
+                    else:
+                        # Mesajdan şehir adını çıkar
+                        city_found = None
+                        for city_name in TURKEY_CITIES.keys():
+                            if city_name.lower() in message_lower:
+                                city_found = city_name
+                                break
+                        
+                        if not city_found:
+                            # Genel il bazlı bilgi
+                            city_earthquakes = {}
+                            for eq in earthquakes:
+                                if eq.get('geojson') and eq['geojson'].get('coordinates'):
+                                    lon, lat = eq['geojson']['coordinates']
+                                    nearest_city, distance = find_nearest_city(lat, lon)
+                                    if nearest_city not in city_earthquakes:
+                                        city_earthquakes[nearest_city] = []
+                                    city_earthquakes[nearest_city].append(eq)
+                            
+                            # En çok deprem olan şehirler
+                            top_cities = sorted(city_earthquakes.items(), key=lambda x: len(x[1]), reverse=True)[:5]
+                            
+                            response_text = '🏙️ İL BAZINDA DEPREM DURUMLARI (Son 24 Saat):\n\n'
+                            if top_cities:
+                                for city, eqs in top_cities:
+                                    max_mag = max([e.get('mag', 0) for e in eqs], default=0)
+                                    response_text += f'📍 {city}: {len(eqs)} deprem (En büyük: M{max_mag:.1f})\n'
+                            else:
+                                response_text += 'Son 24 saatte kayda değer deprem aktivitesi görülmüyor.\n'
+                            
+                            response_text += '\n💡 Belirli bir şehir için sorabilirsiniz (örn: "İstanbul deprem durumu")'
+                        else:
+                            # Belirli şehir için detaylı bilgi
+                            city_data = TURKEY_CITIES[city_found]
+                            city_lat = city_data['lat']
+                            city_lon = city_data['lon']
+                            
+                            # Şehre yakın depremler (150 km içinde)
+                            nearby_earthquakes = []
+                            for eq in earthquakes:
+                                if eq.get('geojson') and eq['geojson'].get('coordinates'):
+                                    lon, lat = eq['geojson']['coordinates']
+                                    distance = haversine(city_lat, city_lon, lat, lon)
+                                    if distance <= 150:
+                                        nearby_earthquakes.append((eq, distance))
+                            
+                            # Risk analizi
+                            risk_result = predict_earthquake_risk(earthquakes, city_lat, city_lon)
+                            risk_score = risk_result.get('risk_score', 0)
+                            
+                            response_text = f'🏙️ {city_found.upper()} DEPREM DURUMU:\n\n'
+                            response_text += f'📊 Risk Skoru: {risk_score:.1f}/10\n'
+                            
+                            if nearby_earthquakes:
+                                nearby_earthquakes.sort(key=lambda x: x[0].get('mag', 0), reverse=True)
+                                response_text += f'\n📍 Son 24 Saatte 150 km İçinde: {len(nearby_earthquakes)} deprem\n'
+                                response_text += f'• En büyük: M{nearby_earthquakes[0][0].get("mag", 0):.1f} ({nearby_earthquakes[0][1]:.1f} km uzaklıkta)\n'
+                            else:
+                                response_text += '\n📍 Son 24 saatte 150 km içinde deprem görülmedi.\n'
+                            
+                            response_text += '\n💡 Detaylı analiz için "İl Bazında Risk Analizi" butonunu kullanabilirsiniz.'
+                except Exception as e:
+                    response_text = f'❌ İl bazlı deprem durumu alınırken hata oluştu: {str(e)}'
         
         # Soru tiplerine göre akıllı yanıt
         if not response_text:

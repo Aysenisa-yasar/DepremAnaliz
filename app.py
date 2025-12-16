@@ -2865,46 +2865,30 @@ def chatbot():
             # Soru tiplerine göre akıllı yanıt
             question_words = ['nedir', 'nasıl', 'ne', 'nerede', 'kim', 'hangi', 'kaç', 'neden', 'niçin', 'ne zaman']
             has_question = any(qw in message_lower for qw in question_words)
-                
-                if has_question:
-                    response_text = '🤔 Bu sorunuzu tam olarak anlayamadım. Şu konularda size yardımcı olabilirim:\n\n'
-                    response_text += '• 🔍 Risk analizi ve tahmini nasıl yapılır?\n'
-                    response_text += '• 📊 Son depremler nerede görüntülenir?\n'
-                    response_text += '• 🛡️ Deprem sırasında ne yapmalıyım?\n'
-                    response_text += '• 🏛️ İstanbul erken uyarı sistemi nasıl çalışır?\n'
-                    response_text += '• 📱 WhatsApp bildirimleri nasıl ayarlanır?\n'
-                    response_text += '• 🗺️ Fay hatları nerede?\n'
-                    response_text += '• 🤖 Sistem nasıl çalışır?\n'
-                    response_text += '• 🌤️ Hava durumu bilgileri\n'
-                    response_text += '• 📱 Sosyal medya analizi\n'
-                    response_text += '• 💭 Ruh hali analizi\n\n'
-                    response_text += 'Lütfen daha spesifik bir soru sorun!'
-                else:
-                    # Context-aware yanıt
-                    if context['history']:
-                        last_topic = context['history'][-1].get('user', '')
-                        if 'deprem' in last_topic.lower():
-                            response_text = '💬 Deprem konusunda devam edelim. Size nasıl yardımcı olabilirim?\n\n'
-                            response_text += '• Son depremler hakkında bilgi\n'
-                            response_text += '• Risk analizi\n'
-                            response_text += '• Güvenlik önlemleri\n'
-                            response_text += '• Erken uyarı sistemi'
-                        else:
-                            response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum.\n\n'
-                            response_text += 'Size şunlar hakkında yardımcı olabilirim:\n\n'
-                            response_text += '• 🔍 Risk analizi ve tahmini\n'
-                            response_text += '• 📊 Deprem bilgileri ve haritalar\n'
-                            response_text += '• 🛡️ Güvenlik önlemleri\n'
-                            response_text += '• 🏛️ İstanbul erken uyarı sistemi\n'
-                            response_text += '• 📱 WhatsApp bildirimleri\n'
-                            response_text += '• 🗺️ Fay hatları\n'
-                            response_text += '• 🤖 Makine öğrenmesi ve sistem\n'
-                            response_text += '• 📏 Deprem büyüklüğü ve derinlik\n'
-                            response_text += '• 🏙️ İl bazında analiz\n'
-                            response_text += '• 🌤️ Hava durumu\n'
-                            response_text += '• 📱 Sosyal medya analizi\n'
-                            response_text += '• 💭 Ruh hali analizi\n\n'
-                            response_text += 'Lütfen bu konulardan birini sorun!'
+            
+            if has_question:
+                response_text = '🤔 Bu sorunuzu tam olarak anlayamadım. Şu konularda size yardımcı olabilirim:\n\n'
+                response_text += '• 🔍 Risk analizi ve tahmini nasıl yapılır?\n'
+                response_text += '• 📊 Son depremler nerede görüntülenir?\n'
+                response_text += '• 🛡️ Deprem sırasında ne yapmalıyım?\n'
+                response_text += '• 🏛️ İstanbul erken uyarı sistemi nasıl çalışır?\n'
+                response_text += '• 📱 WhatsApp bildirimleri nasıl ayarlanır?\n'
+                response_text += '• 🗺️ Fay hatları nerede?\n'
+                response_text += '• 🤖 Sistem nasıl çalışır?\n'
+                response_text += '• 🌤️ Hava durumu bilgileri\n'
+                response_text += '• 📱 Sosyal medya analizi\n'
+                response_text += '• 💭 Ruh hali analizi\n\n'
+                response_text += 'Lütfen daha spesifik bir soru sorun!'
+            else:
+                # Context-aware yanıt
+                if context['history']:
+                    last_topic = context['history'][-1].get('user', '')
+                    if 'deprem' in last_topic.lower():
+                        response_text = '💬 Deprem konusunda devam edelim. Size nasıl yardımcı olabilirim?\n\n'
+                        response_text += '• Son depremler hakkında bilgi\n'
+                        response_text += '• Risk analizi\n'
+                        response_text += '• Güvenlik önlemleri\n'
+                        response_text += '• Erken uyarı sistemi'
                     else:
                         response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum.\n\n'
                         response_text += 'Size şunlar hakkında yardımcı olabilirim:\n\n'
@@ -2921,6 +2905,22 @@ def chatbot():
                         response_text += '• 📱 Sosyal medya analizi\n'
                         response_text += '• 💭 Ruh hali analizi\n\n'
                         response_text += 'Lütfen bu konulardan birini sorun!'
+                else:
+                    response_text = '🤔 Anladım, ancak bu konuda daha fazla bilgi veremiyorum.\n\n'
+                    response_text += 'Size şunlar hakkında yardımcı olabilirim:\n\n'
+                    response_text += '• 🔍 Risk analizi ve tahmini\n'
+                    response_text += '• 📊 Deprem bilgileri ve haritalar\n'
+                    response_text += '• 🛡️ Güvenlik önlemleri\n'
+                    response_text += '• 🏛️ İstanbul erken uyarı sistemi\n'
+                    response_text += '• 📱 WhatsApp bildirimleri\n'
+                    response_text += '• 🗺️ Fay hatları\n'
+                    response_text += '• 🤖 Makine öğrenmesi ve sistem\n'
+                    response_text += '• 📏 Deprem büyüklüğü ve derinlik\n'
+                    response_text += '• 🏙️ İl bazında analiz\n'
+                    response_text += '• 🌤️ Hava durumu\n'
+                    response_text += '• 📱 Sosyal medya analizi\n'
+                    response_text += '• 💭 Ruh hali analizi\n\n'
+                    response_text += 'Lütfen bu konulardan birini sorun!'
         
         # Eğer hiç yanıt oluşturulmadıysa varsayılan yanıt ver
         if not response_text:

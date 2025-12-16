@@ -1917,6 +1917,117 @@ def train_models():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/dataset-info', methods=['GET'])
+def dataset_info():
+    """ Eğitimde kullanılan güncel veri seti bilgilerini döndürür. """
+    try:
+        # Veri seti dosyasını kontrol et
+        if not os.path.exists(EARTHQUAKE_HISTORY_FILE):
+            return jsonify({
+                "status": "no_data",
+                "message": "Henüz veri seti oluşturulmamış.",
+                "total_records": 0,
+                "file_size_kb": 0,
+                "cities_count": 0,
+                "date_range": None,
+                "last_update": None,
+                "statistics": {}
+            })
+        
+        # Dosya bilgileri
+        file_size = os.path.getsize(EARTHQUAKE_HISTORY_FILE)
+        file_size_kb = round(file_size / 1024, 2)
+        
+        # Veri setini yükle
+        with open(EARTHQUAKE_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            history = json.load(f)
+        
+        if not history or len(history) == 0:
+            return jsonify({
+                "status": "empty",
+                "message": "Veri seti boş.",
+                "total_records": 0,
+                "file_size_kb": file_size_kb,
+                "cities_count": 0,
+                "date_range": None,
+                "last_update": None,
+                "statistics": {}
+            })
+        
+        # İstatistikler
+        total_records = len(history)
+        cities = set()
+        timestamps = []
+        risk_scores = []
+        
+        for record in history:
+            if 'city' in record:
+                cities.add(record['city'])
+            if 'timestamp' in record:
+                timestamps.append(record['timestamp'])
+            if 'risk_score' in record:
+                risk_scores.append(record['risk_score'])
+        
+        # Tarih aralığı
+        date_range = None
+        if timestamps:
+            min_timestamp = min(timestamps)
+            max_timestamp = max(timestamps)
+            min_date = datetime.fromtimestamp(min_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+            max_date = datetime.fromtimestamp(max_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+            date_range = {
+                "first_record": min_date,
+                "last_record": max_date,
+                "days_span": round((max_timestamp - min_timestamp) / 86400, 1)
+            }
+        
+        # Son güncelleme
+        last_update = None
+        if timestamps:
+            last_timestamp = max(timestamps)
+            last_update = datetime.fromtimestamp(last_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Risk skoru istatistikleri
+        risk_stats = {}
+        if risk_scores:
+            risk_stats = {
+                "min": round(min(risk_scores), 2),
+                "max": round(max(risk_scores), 2),
+                "mean": round(sum(risk_scores) / len(risk_scores), 2),
+                "median": round(sorted(risk_scores)[len(risk_scores) // 2], 2) if risk_scores else 0
+            }
+        
+        # Şehir bazlı istatistikler
+        city_counts = {}
+        for record in history:
+            city = record.get('city', 'Bilinmeyen')
+            city_counts[city] = city_counts.get(city, 0) + 1
+        
+        # En çok veri olan şehirler (top 10)
+        top_cities = sorted(city_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        return jsonify({
+            "status": "success",
+            "total_records": total_records,
+            "file_size_kb": file_size_kb,
+            "cities_count": len(cities),
+            "date_range": date_range,
+            "last_update": last_update,
+            "statistics": {
+                "risk_score": risk_stats,
+                "top_cities": [{"city": city, "count": count} for city, count in top_cities],
+                "total_cities": len(cities)
+            },
+            "model_status": {
+                "model_exists": os.path.exists(RISK_PREDICTION_MODEL_FILE),
+                "model_file_size_kb": round(os.path.getsize(RISK_PREDICTION_MODEL_FILE) / 1024, 2) if os.path.exists(RISK_PREDICTION_MODEL_FILE) else 0
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/anomaly-detection', methods=['POST'])
 def anomaly_detection():
     """ Anomali tespiti yapar. """

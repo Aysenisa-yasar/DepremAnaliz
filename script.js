@@ -147,6 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Manuel hasar tahmini kaldırıldı
     // Manuel hasar tahmini kaldırıldı
     const predictRiskButton = document.getElementById('predictRiskButton');
+    const showDatasetInfoButton = document.getElementById('showDatasetInfoButton');
     const riskPredictionResult = document.getElementById('riskPredictionResult');
     const analyzeCityDamageButton = document.getElementById('analyzeCityDamageButton');
     const cityDamageResult = document.getElementById('cityDamageResult');
@@ -633,6 +634,172 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // İl Bazında Hasar Analizi
+    // Veri Seti Bilgileri Butonu
+    if (showDatasetInfoButton) {
+        showDatasetInfoButton.addEventListener('click', () => {
+            showDatasetInfoButton.disabled = true;
+            showDatasetInfoButton.textContent = '⏳ Yükleniyor...';
+            
+            fetch(`${API_URL}/api/dataset-info`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Sunucu hatası: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                showDatasetInfoButton.disabled = false;
+                showDatasetInfoButton.textContent = '📈 Veri Seti Görüntüle';
+                
+                let content = '';
+                
+                if (data.status === 'no_data' || data.status === 'empty') {
+                    content = `
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 48px; margin-bottom: 15px;">📭</div>
+                            <h3 style="color: #FFC107; margin-bottom: 10px;">Veri Seti Henüz Oluşturulmamış</h3>
+                            <p style="color: rgba(255, 255, 255, 0.8);">
+                                ${data.message || 'Henüz eğitim verisi toplanmamış. Sistem otomatik olarak veri toplamaya başladığında burada görünecek.'}
+                            </p>
+                            <p style="margin-top: 15px; color: rgba(255, 255, 255, 0.7); font-size: 0.9em;">
+                                💡 Veri toplama sistemi her 30 dakikada bir otomatik çalışır.
+                            </p>
+                        </div>
+                    `;
+                } else {
+                    const stats = data.statistics || {};
+                    const riskStats = stats.risk_score || {};
+                    const topCities = stats.top_cities || [];
+                    const dateRange = data.date_range || {};
+                    const modelStatus = data.model_status || {};
+                    
+                    content = `
+                        <div style="max-height: 70vh; overflow-y: auto;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                                <div style="background: rgba(46, 204, 113, 0.1); border: 1px solid rgba(46, 204, 113, 0.3); border-radius: 10px; padding: 15px;">
+                                    <div style="font-size: 24px; margin-bottom: 5px;">📊</div>
+                                    <div style="font-size: 28px; font-weight: bold; color: #2ecc71;">${data.total_records.toLocaleString()}</div>
+                                    <div style="font-size: 0.9em; color: rgba(255, 255, 255, 0.7);">Toplam Kayıt</div>
+                                </div>
+                                <div style="background: rgba(52, 152, 219, 0.1); border: 1px solid rgba(52, 152, 219, 0.3); border-radius: 10px; padding: 15px;">
+                                    <div style="font-size: 24px; margin-bottom: 5px;">🏙️</div>
+                                    <div style="font-size: 28px; font-weight: bold; color: #3498db;">${data.cities_count}</div>
+                                    <div style="font-size: 0.9em; color: rgba(255, 255, 255, 0.7);">Şehir Sayısı</div>
+                                </div>
+                                <div style="background: rgba(155, 89, 182, 0.1); border: 1px solid rgba(155, 89, 182, 0.3); border-radius: 10px; padding: 15px;">
+                                    <div style="font-size: 24px; margin-bottom: 5px;">💾</div>
+                                    <div style="font-size: 28px; font-weight: bold; color: #9b59b6;">${data.file_size_kb} KB</div>
+                                    <div style="font-size: 0.9em; color: rgba(255, 255, 255, 0.7);">Dosya Boyutu</div>
+                                </div>
+                            </div>
+                            
+                            ${dateRange.first_record ? `
+                            <div style="background: rgba(241, 196, 15, 0.1); border: 1px solid rgba(241, 196, 15, 0.3); border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                                <h3 style="color: #f1c40f; margin: 0 0 10px 0; font-size: 1.1em;">📅 Tarih Aralığı</h3>
+                                <div style="color: rgba(255, 255, 255, 0.9);">
+                                    <p style="margin: 5px 0;"><strong>İlk Kayıt:</strong> ${dateRange.first_record}</p>
+                                    <p style="margin: 5px 0;"><strong>Son Kayıt:</strong> ${dateRange.last_record}</p>
+                                    <p style="margin: 5px 0;"><strong>Toplam Süre:</strong> ${dateRange.days_span} gün</p>
+                                </div>
+                            </div>
+                            ` : ''}
+                            
+                            ${data.last_update ? `
+                            <div style="background: rgba(46, 204, 113, 0.1); border: 1px solid rgba(46, 204, 113, 0.3); border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                                <h3 style="color: #2ecc71; margin: 0 0 10px 0; font-size: 1.1em;">🔄 Son Güncelleme</h3>
+                                <p style="margin: 0; color: rgba(255, 255, 255, 0.9);">${data.last_update}</p>
+                            </div>
+                            ` : ''}
+                            
+                            ${riskStats.min !== undefined ? `
+                            <div style="background: rgba(231, 76, 60, 0.1); border: 1px solid rgba(231, 76, 60, 0.3); border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                                <h3 style="color: #e74c3c; margin: 0 0 10px 0; font-size: 1.1em;">📈 Risk Skoru İstatistikleri</h3>
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; color: rgba(255, 255, 255, 0.9);">
+                                    <div><strong>Min:</strong> ${riskStats.min}</div>
+                                    <div><strong>Max:</strong> ${riskStats.max}</div>
+                                    <div><strong>Ortalama:</strong> ${riskStats.mean}</div>
+                                    <div><strong>Medyan:</strong> ${riskStats.median}</div>
+                                </div>
+                            </div>
+                            ` : ''}
+                            
+                            ${topCities.length > 0 ? `
+                            <div style="background: rgba(52, 152, 219, 0.1); border: 1px solid rgba(52, 152, 219, 0.3); border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                                <h3 style="color: #3498db; margin: 0 0 10px 0; font-size: 1.1em;">🏆 En Çok Veri Olan Şehirler (Top 10)</h3>
+                                <div style="max-height: 200px; overflow-y: auto;">
+                                    <table style="width: 100%; border-collapse: collapse;">
+                                        <thead>
+                                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
+                                                <th style="text-align: left; padding: 8px; color: rgba(255, 255, 255, 0.8);">Şehir</th>
+                                                <th style="text-align: right; padding: 8px; color: rgba(255, 255, 255, 0.8);">Kayıt Sayısı</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${topCities.map((item, index) => `
+                                                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                                                    <td style="padding: 8px; color: rgba(255, 255, 255, 0.9);">${index + 1}. ${item.city}</td>
+                                                    <td style="text-align: right; padding: 8px; color: rgba(255, 255, 255, 0.9);">${item.count.toLocaleString()}</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            ` : ''}
+                            
+                            ${modelStatus.model_exists ? `
+                            <div style="background: rgba(46, 204, 113, 0.1); border: 1px solid rgba(46, 204, 113, 0.3); border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                                <h3 style="color: #2ecc71; margin: 0 0 10px 0; font-size: 1.1em;">🤖 Model Durumu</h3>
+                                <p style="margin: 5px 0; color: rgba(255, 255, 255, 0.9);">
+                                    ✅ <strong>Model Eğitilmiş</strong> (${modelStatus.model_file_size_kb} KB)
+                                </p>
+                                <p style="margin: 5px 0; font-size: 0.85em; color: rgba(255, 255, 255, 0.7);">
+                                    Model aktif olarak risk tahminlerinde kullanılıyor.
+                                </p>
+                            </div>
+                            ` : `
+                            <div style="background: rgba(243, 156, 18, 0.1); border: 1px solid rgba(243, 156, 18, 0.3); border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                                <h3 style="color: #f39c12; margin: 0 0 10px 0; font-size: 1.1em;">🤖 Model Durumu</h3>
+                                <p style="margin: 5px 0; color: rgba(255, 255, 255, 0.9);">
+                                    ⚠️ <strong>Model Henüz Eğitilmemiş</strong>
+                                </p>
+                                <p style="margin: 5px 0; font-size: 0.85em; color: rgba(255, 255, 255, 0.7);">
+                                    Model otomatik olarak eğitilecek (24 saatte bir veya veri seti eşiklerine ulaştığında).
+                                </p>
+                            </div>
+                            `}
+                            
+                            <div style="background: rgba(149, 165, 166, 0.1); border: 1px solid rgba(149, 165, 166, 0.3); border-radius: 10px; padding: 15px; margin-top: 15px;">
+                                <p style="margin: 0; font-size: 0.85em; color: rgba(255, 255, 255, 0.7);">
+                                    💡 <strong>Otomatik Eğitim:</strong> Model her 24 saatte bir veya veri seti 100, 500, 1000, 2000, 5000, 10000 kayıt eşiklerine ulaştığında otomatik olarak eğitilir.
+                                </p>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                openModal('📊 Eğitim Veri Seti Bilgileri', content);
+            })
+            .catch(error => {
+                showDatasetInfoButton.disabled = false;
+                showDatasetInfoButton.textContent = '📈 Veri Seti Görüntüle';
+                console.error('Veri seti bilgileri alınırken hata:', error);
+                openModal('❌ Hata', `
+                    <div style="text-align: center; padding: 20px;">
+                        <p style="color: #FF1744;">Veri seti bilgileri alınamadı.</p>
+                        <p style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-top: 10px;">
+                            ${error.message || 'Sunucuya bağlanılamadı. Lütfen tekrar deneyin.'}
+                        </p>
+                    </div>
+                `);
+            });
+        });
+    }
+
     analyzeCityDamageButton.addEventListener('click', () => {
         openModal('🏙️ İl Bazında Risk Analizi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">İl bazında hasar analizi yapılıyor...</p></div>');
         

@@ -2419,6 +2419,9 @@ def chatbot():
         # Gelişmiş rule-based AI - Öncelikli pattern matching (daha spesifik önce)
         # ÖNEMLİ: Daha spesifik pattern'ler önce kontrol edilmeli
         
+        # Yanıt değişkenini başlat
+        response_text = ''
+        
         # Öncelik 1: Ruh hali ve duygusal destek (en önemli - önce kontrol edilmeli)
         if any(word in message_lower for word in ['korku', 'korkuyorum', 'korkuyor', 'endişe', 'endişeliyim', 'kaygı', 'kaygılı', 'stres', 'stresli', 'panik', 'panikliyim', 'korkarım', 'korktum', 'korktuk']):
             response_text = '💚 KORKUNUZU ANLIYORUM - DESTEK REHBERİ:\n\n'
@@ -2860,8 +2863,8 @@ def chatbot():
         
         if not response_text:
             # Soru tiplerine göre akıllı yanıt
-                question_words = ['nedir', 'nasıl', 'ne', 'nerede', 'kim', 'hangi', 'kaç', 'neden', 'niçin', 'ne zaman']
-                has_question = any(qw in message_lower for qw in question_words)
+            question_words = ['nedir', 'nasıl', 'ne', 'nerede', 'kim', 'hangi', 'kaç', 'neden', 'niçin', 'ne zaman']
+            has_question = any(qw in message_lower for qw in question_words)
                 
                 if has_question:
                     response_text = '🤔 Bu sorunuzu tam olarak anlayamadım. Şu konularda size yardımcı olabilirim:\n\n'
@@ -2919,8 +2922,22 @@ def chatbot():
                         response_text += '• 💭 Ruh hali analizi\n\n'
                         response_text += 'Lütfen bu konulardan birini sorun!'
         
+        # Eğer hiç yanıt oluşturulmadıysa varsayılan yanıt ver
+        if not response_text:
+            response_text = '🤔 Mesajınızı anlayamadım. Size şu konularda yardımcı olabilirim:\n\n'
+            response_text += '• 🔍 Risk analizi ve tahmini\n'
+            response_text += '• 📊 Deprem bilgileri ve haritalar\n'
+            response_text += '• 🛡️ Güvenlik önlemleri\n'
+            response_text += '• 🏛️ İstanbul erken uyarı sistemi\n'
+            response_text += '• 📱 WhatsApp bildirimleri\n'
+            response_text += '• 🗺️ Fay hatları\n'
+            response_text += '• 🌤️ Hava durumu\n'
+            response_text += '• 📱 Sosyal medya analizi\n'
+            response_text += '• 💭 Ruh hali analizi\n\n'
+            response_text += 'Lütfen daha spesifik bir soru sorun!'
+        
         # Ruh haline göre yanıtı özelleştir
-        if context.get('user_mood') == 'negatif' and '😔' not in response_text:
+        if context.get('user_mood') == 'negatif' and '😔' not in response_text and response_text:
             response_text = '💚 ' + response_text
         
         # Konuşma geçmişine yanıtı ekle

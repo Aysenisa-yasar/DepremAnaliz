@@ -2582,6 +2582,11 @@ def collect_training_data_continuously():
     """ Arka planda sürekli çalışır, eğitim verisi toplar ve günceller. """
     print("[VERI TOPLAMA] Sürekli veri toplama sistemi başlatıldı.")
     
+    # Otomatik model eğitimi için takip değişkenleri
+    last_training_time = 0  # Son eğitim zamanı
+    training_thresholds = [100, 500, 1000, 2000, 5000, 10000]  # Veri seti büyüklüğü eşikleri
+    last_training_data_size = 0  # Son eğitimdeki veri seti büyüklüğü
+    
     while True:
         try:
             # Her 30 dakikada bir veri topla
@@ -2673,6 +2678,43 @@ def collect_training_data_continuously():
                         json.dump(existing_data, f, ensure_ascii=False, indent=2)
                     
                     print(f"[VERI TOPLAMA] ✅ {cities_processed} şehir için {len(new_training_data)} yeni eğitim verisi eklendi. Toplam: {len(existing_data)} kayıt")
+                    
+                    # OTOMATIK MODEL EĞİTİMİ KONTROLÜ
+                    current_time = time.time()
+                    current_data_size = len(existing_data)
+                    should_train = False
+                    training_reason = ""
+                    
+                    # 1. Zaman bazlı kontrol: Her 24 saatte bir eğitim
+                    if last_training_time == 0 or (current_time - last_training_time) >= 86400:  # 24 saat = 86400 saniye
+                        should_train = True
+                        training_reason = "24 saatlik periyot doldu"
+                    
+                    # 2. Veri seti büyüklüğü kontrolü: Belirli eşiklere ulaştığında eğitim
+                    elif current_data_size >= 50:  # Minimum eğitim için 50 kayıt gerekli
+                        for threshold in training_thresholds:
+                            if last_training_data_size < threshold <= current_data_size:
+                                should_train = True
+                                training_reason = f"Veri seti {threshold} kayıt eşiğine ulaştı (önceki: {last_training_data_size}, şimdi: {current_data_size})"
+                                break
+                    
+                    # Model eğitimi yap
+                    if should_train:
+                        print(f"\n[OTOMATIK EGITIM] Model eğitimi başlatılıyor... ({training_reason})")
+                        try:
+                            models = train_risk_prediction_model(existing_data)
+                            if models:
+                                last_training_time = current_time
+                                last_training_data_size = current_data_size
+                                print(f"[OTOMATIK EGITIM] ✅ Model başarıyla eğitildi! ({len(models)} model)")
+                                print(f"[OTOMATIK EGITIM] Eğitilen modeller: {list(models.keys())}")
+                            else:
+                                print(f"[OTOMATIK EGITIM] ⚠️ Model eğitilemedi (yeterli veri yok veya hata)")
+                        except Exception as e:
+                            print(f"[OTOMATIK EGITIM] ❌ Model eğitimi hatası: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    
                 except Exception as e:
                     print(f"[VERI TOPLAMA] Veri kaydedilemedi: {e}")
             else:
@@ -2872,11 +2914,14 @@ alert_thread = Thread(target=check_for_big_earthquakes)
 alert_thread.daemon = True 
 alert_thread.start()
 
-# 2. Sürekli veri toplama (30 dakikada bir)
+# 2. Sürekli veri toplama (30 dakikada bir) + Otomatik model eğitimi
 data_collection_thread = Thread(target=collect_training_data_continuously)
 data_collection_thread.daemon = True
 data_collection_thread.start()
 print("[SISTEM] Sürekli veri toplama sistemi başlatıldı (her 30 dakikada bir).")
+print("[SISTEM] Otomatik model eğitimi aktif:")
+print("  - Her 24 saatte bir otomatik eğitim")
+print("  - Veri seti 100, 500, 1000, 2000, 5000, 10000 kayıt eşiklerine ulaştığında otomatik eğitim")
 
 
 if __name__ == '__main__':

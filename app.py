@@ -111,7 +111,8 @@ TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
 
 # --- META WHATSAPP BUSINESS API AYARLARI ---
 # Meta WhatsApp Business API için gerekli bilgiler (kalıcı token kullanılmalı)
-META_WHATSAPP_ACCESS_TOKEN = os.environ.get("META_WHATSAPP_ACCESS_TOKEN")
+# ChatGPT formatı: META_WA_TOKEN (öncelikli) veya META_WHATSAPP_ACCESS_TOKEN (geriye dönük uyumluluk)
+META_WHATSAPP_ACCESS_TOKEN = os.environ.get("META_WA_TOKEN") or os.environ.get("META_WHATSAPP_ACCESS_TOKEN")
 META_WHATSAPP_PHONE_NUMBER_ID = os.environ.get("META_WHATSAPP_PHONE_NUMBER_ID", "833412653196098")
 META_WHATSAPP_API_VERSION = os.environ.get("META_WHATSAPP_API_VERSION", "v22.0")
 META_WHATSAPP_TEST_NUMBER = os.environ.get("META_WHATSAPP_TEST_NUMBER", "+15551679784")  # Test numarası (From)
@@ -2331,6 +2332,78 @@ def chatbot():
     except Exception as e:
         print(f"[ERROR] Chatbot hatası: {e}")
         return jsonify({"response": "Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin."}), 500
+
+@app.route('/api/test-meta-token', methods=['GET'])
+def test_meta_token():
+    """
+    Meta WhatsApp token'ını test eder.
+    ChatGPT önerisi: https://graph.facebook.com/v22.0/833412653196098?access_token=TOKEN
+    """
+    if not META_WHATSAPP_ACCESS_TOKEN:
+        return jsonify({
+            "success": False,
+            "message": "Token bulunamadı. META_WA_TOKEN environment variable'ı ekleyin."
+        }), 400
+    
+    try:
+        test_url = f"https://graph.facebook.com/{META_WHATSAPP_API_VERSION}/{META_WHATSAPP_PHONE_NUMBER_ID}?access_token={META_WHATSAPP_ACCESS_TOKEN}"
+        response = requests.get(test_url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return jsonify({
+                "success": True,
+                "message": "✅ Token çalışıyor!",
+                "phone_number_id": data.get('id'),
+                "verified_name": data.get('verified_name', 'N/A'),
+                "display_phone_number": data.get('display_phone_number', 'N/A')
+            })
+        else:
+            error_data = response.json() if response.text else {}
+            error_msg = error_data.get('error', {}).get('message', f"HTTP {response.status_code}")
+            return jsonify({
+                "success": False,
+                "message": f"❌ Token hatası: {error_msg}",
+                "status_code": response.status_code
+            }), response.status_code
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Test hatası: {str(e)}"
+        }), 500
+
+@app.route('/api/test-meta-whatsapp-send', methods=['POST'])
+def test_meta_whatsapp_send():
+    """
+    Meta WhatsApp ile test mesajı gönderir (ChatGPT önerisi).
+    Sadece session açılmışsa çalışır.
+    """
+    if not USE_META_WHATSAPP:
+        return jsonify({
+            "success": False,
+            "message": "Meta WhatsApp API ayarları yapılmamış"
+        }), 503
+    
+    data = request.get_json() or {}
+    test_number = data.get('to', '905468964210')  # Varsayılan test numarası
+    
+    test_message = "🚨 Test başarılı. AfetBot aktif."
+    
+    success, error = send_whatsapp_via_meta_api(test_number, test_message)
+    
+    if success:
+        return jsonify({
+            "success": True,
+            "message": "✅ Test mesajı gönderildi!",
+            "to": test_number
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "message": f"❌ Mesaj gönderilemedi: {error}",
+            "error": error,
+            "note": "Session açılmamış olabilir. Önce opt-in linki ile session açın."
+        }), 400
 
 @app.route('/api/get-opt-in-link', methods=['GET'])
 def get_opt_in_link():

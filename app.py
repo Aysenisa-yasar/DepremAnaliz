@@ -25,6 +25,7 @@ from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
 import requests.exceptions
 import pandas as pd 
+from textblob import TextBlob
 
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
@@ -2541,30 +2542,30 @@ def chatbot():
             ('harita', 'görselleştirme', 'görsel', 'map', 'haritada'): '🗺️ HARİTA ÖZELLİKLERİ:\n• İki harita mevcut:\n  1. YZ Risk Analizi - Risk bölgeleri\n  2. Son 1 Gün Depremler & Aktif Fay Hatları\n• Depremler büyüklüğe göre renklendirilir\n• Fay hatları kırmızı kesikli çizgi ile gösterilir\n• Marker\'lara tıklayarak detaylı bilgi alabilirsiniz',
         }
         
-        # Çoklu anahtar kelime eşleştirme (öncelikli - eğer yukarıdaki spesifik pattern'ler eşleşmediyse)
-        if not response_text:
-            matched_keywords = []
-            needs_special_processing = False
-            special_type = None
-            
-            for keywords, response in responses.items():
-                for keyword in keywords:
-                    if keyword in message_lower:
-                        if response is None:  # Özel işlem gerekiyor
-                            needs_special_processing = True
-                            # Hangi özel işlem tipi?
-                            if keyword in ['veri seti', 'dataset', 'eğitim verisi', 'veri seti bilgileri', 'veri durumu', 'model verisi', 'eğitim durumu', 'veri istatistikleri']:
-                                special_type = 'dataset_info'
-                            elif keyword in ['hava durumu', 'hava', 'weather', 'sıcaklık', 'yağmur', 'kar', 'rüzgar', 'günlük hava', 'bugün hava', 'hava nasıl']:
-                                special_type = 'weather'
-                            elif keyword in ['ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il', 'il durumu', 'şehir durumu', 'il bazlı', 'şehir bazlı']:
-                                special_type = 'city_earthquake_status'
-                        else:
-                            response_text = response
-                        matched_keywords.append(keyword)
-                        break
-                if response_text or needs_special_processing:
+        # Çoklu anahtar kelime eşleştirme
+        response_text = None
+        matched_keywords = []
+        needs_special_processing = False
+        special_type = None
+        
+        for keywords, response in responses.items():
+            for keyword in keywords:
+                if keyword in message_lower:
+                    if response is None:  # Özel işlem gerekiyor
+                        needs_special_processing = True
+                        # Hangi özel işlem tipi?
+                        if keyword in ['veri seti', 'dataset', 'eğitim verisi', 'veri seti bilgileri', 'veri durumu', 'model verisi', 'eğitim durumu', 'veri istatistikleri']:
+                            special_type = 'dataset_info'
+                        elif keyword in ['hava durumu', 'hava', 'weather', 'sıcaklık', 'yağmur', 'kar', 'rüzgar', 'günlük hava', 'bugün hava']:
+                            special_type = 'weather'
+                        elif keyword in ['ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il', 'il durumu', 'şehir durumu', 'il bazlı', 'şehir bazlı']:
+                            special_type = 'city_earthquake_status'
+                    else:
+                        response_text = response
+                    matched_keywords.append(keyword)
                     break
+            if response_text or needs_special_processing:
+                break
         
         # Eğer eşleşme yoksa, benzer kelimeleri kontrol et
         if not response_text:
@@ -2801,22 +2802,27 @@ def chatbot():
         
         # Gelişmiş akıllı yanıt sistemi
         if not response_text:
-            # Sosyal medya analizi soruları
-            if any(word in message_lower for word in ['sosyal medya', 'twitter', 'instagram', 'facebook', 'tweet', 'paylaşım', 'trend', 'gündem']):
+            # Sosyal medya analizi soruları (daha iyi pattern matching)
+            if any(phrase in message_lower for phrase in ['sosyal medya', 'sosyal medya analizi', 'sosyal medya analizi yap', 'twitter', 'instagram', 'facebook', 'tweet', 'paylaşım', 'trend', 'gündem', 'sosyal medya analiz']):
                 response_text = '📱 SOSYAL MEDYA ANALİZİ:\n\n'
-                response_text += '🔍 Deprem ile ilgili sosyal medya analizi yapabilirim:\n'
-                response_text += '• Twitter/X\'te deprem gündemi\n'
-                response_text += '• Instagram\'da deprem paylaşımları\n'
-                response_text += '• Facebook\'ta deprem grupları\n'
-                response_text += '• Trend analizi\n\n'
-                response_text += '💡 Örnek sorular:\n'
+                response_text += '🔍 Deprem ile ilgili sosyal medya analizi yapabilirim:\n\n'
+                response_text += '📊 ANALİZ KONULARI:\n'
+                response_text += '• Twitter/X\'te deprem gündemi ve trendler\n'
+                response_text += '• Instagram\'da deprem paylaşımları ve etiketler\n'
+                response_text += '• Facebook\'ta deprem grupları ve tartışmalar\n'
+                response_text += '• Genel trend analizi\n'
+                response_text += '• Gündem takibi\n\n'
+                response_text += '💡 ÖRNEK SORULAR:\n'
                 response_text += '• "Twitter\'da deprem gündemi ne?"\n'
                 response_text += '• "Deprem ile ilgili son trendler"\n'
-                response_text += '• "Sosyal medyada deprem konuşmaları"\n\n'
-                response_text += '⚠️ Not: Gerçek zamanlı sosyal medya analizi için API entegrasyonu gereklidir.'
-            
-            # Ruh hali analizi soruları
-            elif any(word in message_lower for word in ['ruh hali', 'duygu', 'hissediyorum', 'nasıl hissediyorum', 'mood', 'duygusal', 'stres', 'kaygı', 'endişe', 'korku']):
+                response_text += '• "Sosyal medyada deprem konuşmaları"\n'
+                response_text += '• "Instagram\'da deprem paylaşımları"\n\n'
+                response_text += '⚠️ NOT: Gerçek zamanlı sosyal medya analizi için API entegrasyonu gereklidir.\n'
+                response_text += 'Şu anda genel bilgi ve rehberlik sağlayabilirim.'
+        
+        if not response_text:
+            # Ruh hali analizi soruları (daha iyi pattern - yukarıda korku zaten yakalandı)
+            if any(phrase in message_lower for phrase in ['ruh hali', 'duygu', 'hissediyorum', 'nasıl hissediyorum', 'mood', 'duygusal', 'ruh halim', 'nasıl hissediyorum']):
                 current_mood = context.get('user_mood', 'nötr')
                 if current_mood == 'negatif':
                     response_text = '😔 Ruh halinizi anlıyorum. Deprem konusunda endişeli olmanız normal.\n\n'
@@ -2838,9 +2844,10 @@ def chatbot():
                     response_text = '🤔 Ruh halinizi analiz ediyorum...\n\n'
                     response_text += '💡 Deprem konusunda bilgilenmek ve hazırlık yapmak önemlidir.\n'
                     response_text += 'Size nasıl yardımcı olabilirim?'
-            
+        
+        if not response_text:
             # Genel sohbet ve akıllı yanıtlar
-            elif any(word in message_lower for word in ['nasılsın', 'ne yapıyorsun', 'ne haber', 'naber', 'iyi misin']):
+            if any(word in message_lower for word in ['nasılsın', 'ne yapıyorsun', 'ne haber', 'naber', 'iyi misin']):
                 response_text = '😊 İyiyim, teşekkürler! Size deprem güvenliği konusunda yardımcı olmak için buradayım.\n\n'
                 response_text += 'Size nasıl yardımcı olabilirim?\n'
                 response_text += '• 🔍 Risk analizi\n'
@@ -2850,9 +2857,9 @@ def chatbot():
                 response_text += '• 📱 Sosyal medya analizi\n'
                 response_text += '• 💭 Ruh hali analizi\n'
                 response_text += '• Ve daha fazlası!'
-            
+        
+        if not response_text:
             # Soru tiplerine göre akıllı yanıt
-            else:
                 question_words = ['nedir', 'nasıl', 'ne', 'nerede', 'kim', 'hangi', 'kaç', 'neden', 'niçin', 'ne zaman']
                 has_question = any(qw in message_lower for qw in question_words)
                 

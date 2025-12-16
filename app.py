@@ -1917,6 +1917,48 @@ def train_models():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/dataset-count', methods=['GET'])
+def dataset_count():
+    """ Eğitimde kullanılan veri seti sayısını döndürür. """
+    try:
+        if not os.path.exists(EARTHQUAKE_HISTORY_FILE):
+            return jsonify({
+                "total_records": 0,
+                "city_based_records": 0,
+                "kandilli_raw_records": 0,
+                "message": "Henüz veri seti oluşturulmamış."
+            })
+        
+        with open(EARTHQUAKE_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            history = json.load(f)
+        
+        if not history:
+            return jsonify({
+                "total_records": 0,
+                "city_based_records": 0,
+                "kandilli_raw_records": 0,
+                "message": "Veri seti boş."
+            })
+        
+        # Veri tiplerini say
+        city_based = 0  # Şehir bazlı eğitim verileri (features içeren)
+        kandilli_raw = 0  # Kandilli'den çekilen ham deprem verileri (geojson içeren)
+        
+        for record in history:
+            if 'features' in record and 'risk_score' in record:
+                city_based += 1
+            elif 'geojson' in record and record.get('source') == 'kandilli':
+                kandilli_raw += 1
+        
+        return jsonify({
+            "total_records": len(history),
+            "city_based_records": city_based,
+            "kandilli_raw_records": kandilli_raw,
+            "message": f"Toplam {len(history)} kayıt: {city_based} şehir bazlı eğitim verisi, {kandilli_raw} Kandilli ham deprem verisi"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/dataset-info', methods=['GET'])
 def dataset_info():
     """ Eğitimde kullanılan güncel veri seti bilgilerini döndürür. """
@@ -2861,6 +2903,8 @@ def collect_training_data_continuously():
                 print("[VERI TOPLAMA] Veri çekilemedi, bir sonraki denemede tekrar denenilecek.")
                 continue
             
+            print(f"[VERI TOPLAMA] Kandilli'den {len(earthquakes)} deprem verisi çekildi.")
+            
             # Mevcut tarihsel veriyi yükle
             existing_data = []
             if os.path.exists(EARTHQUAKE_HISTORY_FILE):
@@ -2873,6 +2917,8 @@ def collect_training_data_continuously():
             
             # Mevcut verilerin ID'lerini topla (duplicate kontrolü için)
             seen_ids = set()
+            seen_earthquake_ids = set()  # Kandilli deprem verileri için
+            
             for record in existing_data:
                 if 'features' in record:
                     # Şehir bazlı kayıtlar için
@@ -2882,6 +2928,29 @@ def collect_training_data_continuously():
                     timestamp = record.get('timestamp', 0)
                     record_id = f"{city}_{lat:.4f}_{lon:.4f}_{timestamp:.0f}"
                     seen_ids.add(record_id)
+                elif 'geojson' in record:
+                    # Kandilli ham deprem verisi için
+                    if record.get('geojson') and record['geojson'].get('coordinates'):
+                        lon, lat = record['geojson']['coordinates']
+                        eq_id = f"{record.get('mag', 0)}_{lat:.4f}_{lon:.4f}_{record.get('date', '')}_{record.get('time', '')}"
+                        seen_earthquake_ids.add(eq_id)
+            
+            # Yeni Kandilli deprem verilerini ekle (ham veri olarak)
+            new_earthquake_data = []
+            for eq in earthquakes:
+                if eq.get('geojson') and eq['geojson'].get('coordinates'):
+                    lon, lat = eq['geojson']['coordinates']
+                    eq_id = f"{eq.get('mag', 0)}_{lat:.4f}_{lon:.4f}_{eq.get('date', '')}_{eq.get('time', '')}"
+                    if eq_id not in seen_earthquake_ids:
+                        seen_earthquake_ids.add(eq_id)
+                        # Ham deprem verisini ekle (eğitim için)
+                        eq_record = eq.copy()
+                        eq_record['source'] = 'kandilli'
+                        eq_record['collected_at'] = time.time()
+                        new_earthquake_data.append(eq_record)
+            
+            if new_earthquake_data:
+                print(f"[VERI TOPLAMA] {len(new_earthquake_data)} yeni Kandilli deprem verisi eğitime eklendi.")
             
             # Yeni eğitim verisi oluştur (tüm şehirler için)
             new_training_data = []
@@ -2892,7 +2961,7 @@ def collect_training_data_continuously():
                 city_lat = city_data['lat']
                 city_lon = city_data['lon']
                 
-                # Özellik çıkar
+                # Özellik çıkar (Kandilli verileri ile)
                 features = extract_features(earthquakes, city_lat, city_lon, time_window_hours=168)  # Son 7 gün
                 
                 if features and features.get('count', 0) > 0:
@@ -2920,25 +2989,41 @@ def collect_training_data_continuously():
                             'lon': city_lon,
                             'features': features,
                             'risk_score': risk_score,
-                            'timestamp': current_time
+                            'timestamp': current_time,
+                            'earthquake_count': len(earthquakes)  # Kandilli'den çekilen toplam deprem sayısı
                         })
                         cities_processed += 1
             
             # Yeni verileri mevcut veriye ekle
+            data_updated = False
+            
+            # Önce Kandilli ham deprem verilerini ekle
+            if new_earthquake_data:
+                existing_data.extend(new_earthquake_data)
+                data_updated = True
+                print(f"[VERI TOPLAMA] ✅ {len(new_earthquake_data)} yeni Kandilli ham deprem verisi eğitim veri setine eklendi.")
+            
+            # Sonra şehir bazlı eğitim verilerini ekle
             if new_training_data:
                 existing_data.extend(new_training_data)
+                data_updated = True
+                print(f"[VERI TOPLAMA] ✅ {cities_processed} şehir için {len(new_training_data)} yeni eğitim verisi eklendi.")
+            
+            # Veriyi kaydet (hem Kandilli hem şehir bazlı veriler varsa)
+            if data_updated:
+                # Son 50,000 kaydı tut (Kandilli verileri de dahil olduğu için limit artırıldı)
+                if len(existing_data) > 50000:
+                    existing_data = existing_data[-50000:]
+                    print(f"[VERI TOPLAMA] Veri seti 50,000 kayıtla sınırlandırıldı (en eski kayıtlar silindi).")
                 
-                # Son 10,000 kaydı tut (dosya boyutunu kontrol altında tutmak için)
-                if len(existing_data) > 10000:
-                    existing_data = existing_data[-10000:]
-                    print(f"[VERI TOPLAMA] Veri seti 10,000 kayıtla sınırlandırıldı (en eski kayıtlar silindi).")
-                
-                # Veriyi kaydet
                 try:
                     with open(EARTHQUAKE_HISTORY_FILE, 'w', encoding='utf-8') as f:
                         json.dump(existing_data, f, ensure_ascii=False, indent=2)
                     
-                    print(f"[VERI TOPLAMA] ✅ {cities_processed} şehir için {len(new_training_data)} yeni eğitim verisi eklendi. Toplam: {len(existing_data)} kayıt")
+                    # Veri seti istatistikleri
+                    city_count = sum(1 for r in existing_data if 'features' in r)
+                    kandilli_count = sum(1 for r in existing_data if r.get('source') == 'kandilli')
+                    print(f"[VERI TOPLAMA] 📊 Toplam: {len(existing_data)} kayıt ({city_count} şehir bazlı, {kandilli_count} Kandilli ham veri)")
                     
                     # OTOMATIK MODEL EĞİTİMİ KONTROLÜ
                     current_time = time.time()

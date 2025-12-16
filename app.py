@@ -2415,6 +2415,66 @@ def chatbot():
         if len(context['history']) > 10:
             context['history'] = context['history'][-10:]
         
+        # Gelişmiş rule-based AI - Öncelikli pattern matching (daha spesifik önce)
+        # ÖNEMLİ: Daha spesifik pattern'ler önce kontrol edilmeli
+        
+        # Öncelik 1: Ruh hali ve duygusal destek (en önemli - önce kontrol edilmeli)
+        if any(word in message_lower for word in ['korku', 'korkuyorum', 'korkuyor', 'endişe', 'endişeliyim', 'kaygı', 'kaygılı', 'stres', 'stresli', 'panik', 'panikliyim', 'korkarım', 'korktum', 'korktuk']):
+            response_text = '💚 KORKUNUZU ANLIYORUM - DESTEK REHBERİ:\n\n'
+            response_text += '😔 Deprem konusunda korku ve endişe duymanız çok normal. Bu duyguları yaşamak insan doğasının bir parçasıdır.\n\n'
+            response_text += '🛡️ KORKUNUZU AZALTMAK İÇİN:\n'
+            response_text += '1. HAZIRLIK YAPIN: Hazırlık yapmak korkunuzu azaltır ve güvenlik hissi verir\n'
+            response_text += '   • Acil durum çantası hazırlayın\n'
+            response_text += '   • Aile acil durum planı yapın\n'
+            response_text += '   • Güvenli yerleri belirleyin\n\n'
+            response_text += '2. BİLGİLENİN: Doğru bilgi kaynaklarından bilgi alın\n'
+            response_text += '   • Bu sistemden risk analizi yapın\n'
+            response_text += '   • AFAD ve Kandilli gibi resmi kaynakları takip edin\n'
+            response_text += '   • Yanlış bilgilerden uzak durun\n\n'
+            response_text += '3. AİLE İLE KONUŞUN: Duygularınızı paylaşın\n'
+            response_text += '   • Aile üyelerinizle acil durum planınızı gözden geçirin\n'
+            response_text += '   • Çocuklarınızla deprem hakkında yaşlarına uygun konuşun\n\n'
+            response_text += '4. PROFESYONEL DESTEK: Gerekirse destek alın\n'
+            response_text += '   • Aşırı kaygı durumunda psikolog desteği alabilirsiniz\n'
+            response_text += '   • AFAD ve Kızılay psikososyal destek hizmetleri var\n\n'
+            response_text += '💪 HAZIRLIK = GÜVENLİK = HUZUR\n'
+            response_text += 'Hazırlık yapmak sizi güçlendirir ve korkunuzu azaltır. Size nasıl yardımcı olabilirim?'
+        
+        # Öncelik 2: Deprem anında ne yapmalı (çok spesifik)
+        elif any(phrase in message_lower for phrase in ['deprem anında', 'deprem sırasında', 'deprem olduğunda', 'deprem olursa', 'deprem sırası', 'deprem anı', 'deprem sırası ne yapmalı', 'deprem anında ne yapmalı']):
+            response_text = '🚨 DEPREM ANINDA YAPILACAKLAR (ÇÖK-KAPAN-TUTUN):\n\n'
+            response_text += '1️⃣ ÇÖK: Hemen yere çökün\n'
+            response_text += '   • Ayakta durmayın\n'
+            response_text += '   • Yere çömelin\n\n'
+            response_text += '2️⃣ KAPAN: Başınızı ve boynunuzu koruyun\n'
+            response_text += '   • Ellerinizle başınızı ve boynunuzu koruyun\n'
+            response_text += '   • Mümkünse masa altına girin\n'
+            response_text += '   • Yoksa kolon yanına geçin\n\n'
+            response_text += '3️⃣ TUTUN: Sağlam bir yere tutunun\n'
+            response_text += '   • Masa bacağına tutunun\n'
+            response_text += '   • Sarsıntı bitene kadar tutun\n\n'
+            response_text += '⚠️ DEPREM ANINDA YAPILMAMASI GEREKENLER:\n'
+            response_text += '❌ Asansör kullanmayın\n'
+            response_text += '❌ Merdivenlerden uzak durun\n'
+            response_text += '❌ Pencerelerden, dolaplardan, asılı eşyalardan uzak durun\n'
+            response_text += '❌ Balkonlardan atlamayın\n'
+            response_text += '❌ Binalardan dışarı çıkmaya çalışmayın\n\n'
+            response_text += '💡 Sarsıntı bitene kadar ÇÖK-KAPAN-TUTUN pozisyonunda kalın!'
+        
+        # Öncelik 3: Diğer spesifik sorular
+        elif any(word in message_lower for word in ['iyi hissetmemi sağla', 'iyi hisset', 'rahatlat', 'sakinleştir', 'huzur', 'güven']):
+            response_text = '💚 SİZİ RAHATLATMAK İÇİN:\n\n'
+            response_text += '😊 Öncelikle şunu bilin: Hazırlık yapmak sizi güçlendirir!\n\n'
+            response_text += '✅ YAPABİLECEKLERİNİZ:\n'
+            response_text += '1. Acil durum çantanızı hazırlayın (bu sizi güvende hissettirir)\n'
+            response_text += '2. Aile ile acil durum planı yapın\n'
+            response_text += '3. Bu sistemden risk analizi yapın (bilgi güven verir)\n'
+            response_text += '4. Doğru bilgi kaynaklarından bilgi alın\n'
+            response_text += '5. Nefes egzersizleri yapın (kaygı için)\n\n'
+            response_text += '🛡️ HAZIRLIK = GÜVENLİK = HUZUR\n'
+            response_text += 'Hazırlık yapmak endişelerinizi azaltır ve sizi güçlendirir.\n\n'
+            response_text += 'Size nasıl yardımcı olabilirim? Risk analizi yapmak ister misiniz?'
+        
         # Gelişmiş rule-based AI - Çoklu anahtar kelime desteği ve gerçek zamanlı veri
         responses = {
             # Selamlama
@@ -2423,11 +2483,11 @@ def chatbot():
             # Risk analizi
             ('risk', 'risk analizi', 'risk tahmini', 'tehlike', 'güvenli mi', 'riskli mi', 'risk nedir', 'risk skoru'): '🔍 Risk analizi için:\n• Haritadaki "Risk Analizi" bölümünü kullanabilirsiniz\n• "Konumum İçin Risk Tahmini Yap" butonu ile kişisel analiz yapabilirsiniz\n• "İl Bazında Risk Analizi" ile tüm illerin risk durumunu görebilirsiniz\n\nSistem son depremlere ve aktif fay hatlarına göre analiz yapar.',
             
-            # Deprem bilgileri
+            # Deprem bilgileri (genel - spesifik değil)
             ('deprem', 'depremler', 'son deprem', 'deprem listesi', 'deprem haritası', 'bugün deprem', 'son 24 saat', 'yakın zamanda'): '📊 Deprem bilgileri için:\n• "Son 1 Gün Depremler & Aktif Fay Hatları" haritasından son depremleri görebilirsiniz\n• Haritada deprem büyüklüğü, konum ve tarih bilgileri görüntülenir\n• İstanbul için özel erken uyarı sistemi mevcuttur',
             
-            # Güvenlik
-            ('güvenlik', 'güvenli', 'ne yapmalı', 'nasıl korunur', 'önlem', 'hazırlık', 'deprem sırasında', 'deprem öncesi', 'deprem sonrası', 'çök kapan tutun', 'acil durum', 'hazırlık çantası', 'acil çanta'): '🛡️ DEPREM GÜVENLİĞİ:\n\n📌 DEPREM ÖNCESİ:\n• Acil durum çantası hazırlayın (su, yiyecek, ilaç, fener, pil, radyo)\n• Aile acil durum planı yapın\n• Güvenli yerleri belirleyin (masa altı, kolon yanı)\n• Mobilyaları sabitleyin\n• Gaz ve elektrik vanalarının yerini öğrenin\n\n📌 DEPREM SIRASINDA:\n• ÇÖK: Yere çökün\n• KAPAN: Başınızı ve boynunuzu koruyun\n• TUTUN: Sağlam bir yere tutunun\n• Pencerelerden, dolaplardan, asılı eşyalardan uzak durun\n• Asansör kullanmayın\n• Merdivenlerden uzak durun\n\n📌 DEPREM SONRASI:\n• Gaz, elektrik ve su vanalarını kapatın\n• Açık alanlara çıkın\n• Binalara girmeyin\n• Acil durum çantanızı alın\n• Telefon hatlarını gereksiz kullanmayın',
+            # Güvenlik (genel - spesifik değil)
+            ('güvenlik', 'güvenli', 'nasıl korunur', 'önlem', 'hazırlık', 'deprem öncesi', 'deprem sonrası', 'çök kapan tutun', 'acil durum', 'hazırlık çantası', 'acil çanta'): '🛡️ DEPREM GÜVENLİĞİ:\n\n📌 DEPREM ÖNCESİ:\n• Acil durum çantası hazırlayın (su, yiyecek, ilaç, fener, pil, radyo)\n• Aile acil durum planı yapın\n• Güvenli yerleri belirleyin (masa altı, kolon yanı)\n• Mobilyaları sabitleyin\n• Gaz ve elektrik vanalarının yerini öğrenin\n\n📌 DEPREM SIRASINDA:\n• ÇÖK: Yere çökün\n• KAPAN: Başınızı ve boynunuzu koruyun\n• TUTUN: Sağlam bir yere tutunun\n• Pencerelerden, dolaplardan, asılı eşyalardan uzak durun\n• Asansör kullanmayın\n• Merdivenlerden uzak durun\n\n📌 DEPREM SONRASI:\n• Gaz, elektrik ve su vanalarını kapatın\n• Açık alanlara çıkın\n• Binalara girmeyin\n• Acil durum çantanızı alın\n• Telefon hatlarını gereksiz kullanmayın',
             
             # İstanbul
             ('istanbul', 'istanbul uyarı', 'istanbul erken uyarı', 'istanbul risk', 'istanbul güvenli mi', 'istanbul deprem'): '🏛️ İSTANBUL ERKEN UYARI SİSTEMİ:\n• İstanbul için özel gelişmiş yapay zeka destekli erken uyarı sistemi\n• "İstanbul Erken Uyarı Durumunu Kontrol Et" butonundan kontrol edebilirsiniz\n• Sistem deprem öncesi sinyalleri tespit ederek önceden uyarı verir\n• Uyarı seviyeleri: KRİTİK (0-24 saat), YÜKSEK (24-72 saat), ORTA (1 hafta), DÜŞÜK\n• WhatsApp bildirimleri ile anında uyarı alabilirsiniz',
@@ -2481,30 +2541,30 @@ def chatbot():
             ('harita', 'görselleştirme', 'görsel', 'map', 'haritada'): '🗺️ HARİTA ÖZELLİKLERİ:\n• İki harita mevcut:\n  1. YZ Risk Analizi - Risk bölgeleri\n  2. Son 1 Gün Depremler & Aktif Fay Hatları\n• Depremler büyüklüğe göre renklendirilir\n• Fay hatları kırmızı kesikli çizgi ile gösterilir\n• Marker\'lara tıklayarak detaylı bilgi alabilirsiniz',
         }
         
-        # Çoklu anahtar kelime eşleştirme
-        response_text = None
-        matched_keywords = []
-        needs_special_processing = False
-        special_type = None
-        
-        for keywords, response in responses.items():
-            for keyword in keywords:
-                if keyword in message_lower:
-                    if response is None:  # Özel işlem gerekiyor
-                        needs_special_processing = True
-                        # Hangi özel işlem tipi?
-                        if keyword in ['veri seti', 'dataset', 'eğitim verisi', 'veri seti bilgileri', 'veri durumu', 'model verisi', 'eğitim durumu', 'veri istatistikleri']:
-                            special_type = 'dataset_info'
-                        elif keyword in ['hava durumu', 'hava', 'weather', 'sıcaklık', 'yağmur', 'kar', 'rüzgar', 'günlük hava', 'bugün hava']:
-                            special_type = 'weather'
-                        elif keyword in ['ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il', 'il durumu', 'şehir durumu', 'il bazlı', 'şehir bazlı']:
-                            special_type = 'city_earthquake_status'
-                    else:
-                        response_text = response
-                    matched_keywords.append(keyword)
+        # Çoklu anahtar kelime eşleştirme (öncelikli - eğer yukarıdaki spesifik pattern'ler eşleşmediyse)
+        if not response_text:
+            matched_keywords = []
+            needs_special_processing = False
+            special_type = None
+            
+            for keywords, response in responses.items():
+                for keyword in keywords:
+                    if keyword in message_lower:
+                        if response is None:  # Özel işlem gerekiyor
+                            needs_special_processing = True
+                            # Hangi özel işlem tipi?
+                            if keyword in ['veri seti', 'dataset', 'eğitim verisi', 'veri seti bilgileri', 'veri durumu', 'model verisi', 'eğitim durumu', 'veri istatistikleri']:
+                                special_type = 'dataset_info'
+                            elif keyword in ['hava durumu', 'hava', 'weather', 'sıcaklık', 'yağmur', 'kar', 'rüzgar', 'günlük hava', 'bugün hava', 'hava nasıl']:
+                                special_type = 'weather'
+                            elif keyword in ['ankara', 'izmir', 'bursa', 'antalya', 'adana', 'gaziantep', 'konya', 'şehir', 'il', 'hangi il', 'il durumu', 'şehir durumu', 'il bazlı', 'şehir bazlı']:
+                                special_type = 'city_earthquake_status'
+                        else:
+                            response_text = response
+                        matched_keywords.append(keyword)
+                        break
+                if response_text or needs_special_processing:
                     break
-            if response_text or needs_special_processing:
-                break
         
         # Eğer eşleşme yoksa, benzer kelimeleri kontrol et
         if not response_text:

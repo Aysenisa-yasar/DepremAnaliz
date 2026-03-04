@@ -32,6 +32,7 @@ node_modules/
 # Model files (büyük dosyalar)
 ml_models/*.pkl
 ml_models/*.joblib
+models/*.pkl
 
 # Data files
 earthquake_history.json

@@ -1,0 +1,30 @@
+{
+  "version": "v2",
+  "trained_at": "2026-03-04T22:10:01.537981",
+  "feature_importance": {
+    "count": 0.02517540380358696,
+    "max_magnitude": 0.0425918847322464,
+    "mean_magnitude": 0.03037097118794918,
+    "std_magnitude": 0.02934042178094387,
+    "min_distance": 0.07932302355766296,
+    "mean_distance": 0.05604349449276924,
+    "mean_depth": 0.026657283306121826,
+    "mean_interval": 0.0,
+    "min_interval": 0.0,
+    "mag_above_4": 0.025878818705677986,
+    "mag_above_5": 0.32701125741004944,
+    "within_50km": 0.03341657668352127,
+    "within_100km": 0.03265751898288727,
+    "nearest_fault_distance": 0.017406318336725235,
+    "activity_density": 0.08343400061130524,
+    "magnitude_distance_ratio": 0.03318563848733902,
+    "magnitude_trend": 0.15750734508037567
+  },
+  "metrics": {
+    "accuracy": 0.25,
+    "f1_score": 0.1824,
+    "mse": 5.0719,
+    "samples_train": 80,
+    "samples_test": 20
+  }
+}

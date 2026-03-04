@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Flask
+instance/
+.webassets-cache
+
+# Environment variables
+.env
+.env.local
+*.env
+RENDER_ENV_VARIABLES.txt
+whatsapp-session/
+node_modules/
+*.log
+
+# Twilio credentials (güvenlik için)
+# TWILIO_ACCOUNT_SID
+# TWILIO_AUTH_TOKEN
+# TWILIO_WHATSAPP_NUMBER
+
+# Model files (büyük dosyalar)
+ml_models/*.pkl
+ml_models/*.joblib
+
+# Data files
+earthquake_history.json
+user_alerts.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+

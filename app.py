@@ -30,23 +30,27 @@ from textblob import TextBlob
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
 
-# CORS ayarları - GitHub Pages, Render ve tüm public erişim için
-CORS(app, resources={
-    r"/api/*": {
-        "origins": "*",
-        "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
-        "allow_headers": ["Content-Type", "Authorization", "Accept"],
-        "expose_headers": ["Content-Type"],
-        "supports_credentials": False
-    }
-})
+# CORS ayarları - flask-cors ile GitHub Pages ve localhost
+CORS(app, origins=[
+    "https://aysenisa-yasar.github.io",
+    "http://localhost:5000",
+    "http://localhost:3000",
+    "http://127.0.0.1:5000",
+    "http://127.0.0.1:3000",
+    "https://depremanaliz.onrender.com"
+], supports_credentials=False)
 
-# CORS header'larını her yanıta zorla ekle (Render cold start / hata durumlarında da)
+# CORS header'larını her yanıta ekle (tüm yanıtlarda çalışır)
+ALLOWED_ORIGINS = {
+    "https://aysenisa-yasar.github.io", "http://localhost:5000", "http://localhost:3000",
+    "http://127.0.0.1:5000", "http://127.0.0.1:3000", "https://depremanaliz.onrender.com"
+}
 @app.after_request
 def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
+    origin = request.headers.get('Origin', '')
+    response.headers['Access-Control-Allow-Origin'] = origin if origin in ALLOWED_ORIGINS else 'https://aysenisa-yasar.github.io'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
     return response 
 
 # Kandilli verilerini çeken üçüncü taraf API (Live + Archive)

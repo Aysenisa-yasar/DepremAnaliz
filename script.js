@@ -24,8 +24,8 @@ function initializeMap() {
         maxZoom: 19,
         attribution: '© OpenStreetMap contributors © CARTO'
     }).addTo(mymap);
-    // vh birimleri için boyut hesaplaması - birkaç kez gecikmeli çağır
-    [100, 300, 600].forEach(ms => setTimeout(() => mymap && mymap.invalidateSize(), ms));
+    // Leaflet boyut hesaplaması - birkaç kez gecikmeli çağır
+    [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap && mymap.invalidateSize(), ms));
 }
 
 function initializeMap2() {
@@ -41,8 +41,8 @@ function initializeMap2() {
         maxZoom: 19,
         attribution: '© OpenStreetMap contributors © CARTO'
     }).addTo(mymap2);
-    // vh birimleri için boyut hesaplaması - birkaç kez gecikmeli çağır
-    [100, 300, 600].forEach(ms => setTimeout(() => mymap2 && mymap2.invalidateSize(), ms));
+    // Leaflet boyut hesaplaması - birkaç kez gecikmeli çağır
+    [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap2 && mymap2.invalidateSize(), ms));
 }
 
 function getRiskColor(score) {
@@ -97,10 +97,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Pencere boyutu değişince haritaları güncelle (vh birimleri için)
+    // Pencere boyutu değişince haritaları güncelle
     window.addEventListener('resize', () => {
         if (mymap) mymap.invalidateSize();
         if (mymap2) mymap2.invalidateSize();
+    });
+    // Sayfa tam yüklendiğinde harita boyutlarını güncelle
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            if (mymap) mymap.invalidateSize();
+            if (mymap2) mymap2.invalidateSize();
+        }, 100);
     });
     
     // API URL'ini dinamik olarak kullan (localhost veya production)

@@ -32,21 +32,17 @@
 
         <!-- Modern Asymmetric Grid Layout -->
         <div class="cards-grid">
-            <!-- Büyük Kart - Haritalar (Full-width) -->
-            <div class="card card-large card-featured card-map-full">
-                <div class="card-badge">⭐ ÖNE ÇIKAN</div>
-                <h2>🗺️ Canlı Deprem Haritaları</h2>
+            <!-- Harita Kartı 1 - YZ Risk Analizi (2 kart büyüklüğünde) -->
+            <div class="card card-map card-map-1">
+                <h3 class="map-card-title">🤖 YZ Risk Analizi</h3>
                 <p class="map-legend"><span class="legend-dot low"></span> Düşük risk &nbsp; <span class="legend-dot mid"></span> Orta risk &nbsp; <span class="legend-dot high"></span> Yüksek risk</p>
-                <div class="maps-container" style="display:flex!important;flex-direction:column!important;">
-                    <div class="map-wrapper" style="width:100%!important;">
-                        <h3>🤖 YZ Risk Analizi</h3>
-                        <div id="mapid"></div>
-                    </div>
-                    <div class="map-wrapper" style="width:100%!important;">
-                        <h3>📍 Son 1 Gün Depremler & Aktif Fay Hatları</h3>
-                        <div id="mapid2"></div>
-                    </div>
-                </div>
+                <div id="mapid" class="map-in-card"></div>
+            </div>
+
+            <!-- Harita Kartı 2 - Son 1 Gün Depremler (2 kart büyüklüğünde) -->
+            <div class="card card-map card-map-2">
+                <h3 class="map-card-title">📍 Son 1 Gün Depremler & Aktif Fay Hatları</h3>
+                <div id="mapid2" class="map-in-card"></div>
                 <button id="refreshButton" class="btn-modern btn-large">🔄 Haritaları Yenile</button>
                 <div id="earthquake-list" style="margin-top: 20px;">
                     <p>YZ Risk analizi verileri yükleniyor...</p>

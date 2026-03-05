@@ -449,49 +449,36 @@ h1 {
     opacity: 0.3;
 }
 
-/* Map card full-width (2 kolon = tam genişlik) */
-.card-map-full {
+/* Harita kartları - Her biri 2 kart büyüklüğünde, tam genişlik, alt alta */
+.card-map {
     grid-column: 1 / -1;
     width: 100%;
+    min-height: 750px;
+    display: flex;
+    flex-direction: column;
 }
 
-/* Maps Container - Her harita tam genişlik, ALT ALTA (yan yana değil) */
-.card-map-full .maps-container {
-    display: flex !important;
-    flex-direction: column !important;
-    flex-wrap: nowrap !important;
-    gap: 25px;
-    margin-bottom: 25px;
-    width: 100%;
-}
+.card-map-1 { animation-delay: 0.1s; }
+.card-map-2 { animation-delay: 0.2s; }
 
-.card-map-full .map-wrapper {
-    display: flex !important;
-    flex-direction: column !important;
-    position: relative;
-    width: 100% !important;
-    max-width: 100% !important;
-    flex: 0 0 auto !important;
-}
-
-.map-wrapper h3 {
+.map-card-title {
     color: var(--color-white) !important;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     font-weight: 600;
-    margin-bottom: 15px;
+    margin-bottom: 12px;
     text-align: center;
-    padding: 10px;
+    padding: 12px;
     background: rgba(255, 23, 68, 0.1);
     border-radius: 15px;
     border: 1px solid rgba(255, 23, 68, 0.2);
 }
 
-/* Map - Büyük, tam genişlik (ekranın önemli kısmı) */
-#mapid, #mapid2 {
+/* Harita div - kart içinde 2 kart yüksekliği kadar */
+.map-in-card {
+    flex: 1;
     width: 100% !important;
-    height: 75vh !important;
-    min-height: 500px !important;
-    max-height: 800px;
+    min-height: 600px !important;
+    height: 650px !important;
     border-radius: 15px;
     box-shadow: 
         0 10px 40px rgba(0, 0, 0, 0.4),
@@ -516,10 +503,12 @@ h1 {
 }
 
 @media (max-width: 768px) {
-    #mapid, #mapid2 {
-        height: 55vh !important;
-        min-height: 380px !important;
-        max-height: 500px;
+    .card-map {
+        min-height: 550px;
+    }
+    #mapid, #mapid2, .map-in-card {
+        height: 450px !important;
+        min-height: 400px !important;
     }
 }
 

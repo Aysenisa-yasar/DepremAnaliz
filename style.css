@@ -388,9 +388,6 @@ h1 {
     .risk-meter-item {
         min-width: 100%;
     }
-    #mapid, #mapid2 {
-        height: 300px;
-    }
 }
 
 @keyframes fadeInUp {
@@ -489,10 +486,12 @@ h1 {
     border: 1px solid rgba(255, 23, 68, 0.2);
 }
 
-/* Map - Tam genişlik, 2 kolonluk alan */
+/* Map - Büyük, tam genişlik (ekranın önemli kısmı) */
 #mapid, #mapid2 {
     width: 100% !important;
-    height: 420px;
+    height: 75vh !important;
+    min-height: 500px !important;
+    max-height: 800px;
     border-radius: 15px;
     box-shadow: 
         0 10px 40px rgba(0, 0, 0, 0.4),
@@ -518,7 +517,9 @@ h1 {
 
 @media (max-width: 768px) {
     #mapid, #mapid2 {
-        height: 350px;
+        height: 55vh !important;
+        min-height: 380px !important;
+        max-height: 500px;
     }
 }
 
@@ -929,10 +930,6 @@ input[type="tel"]::placeholder, input[type="number"]::placeholder {
     
     .card {
         padding: 25px 20px;
-    }
-    
-    #mapid, #mapid2 {
-        height: 350px;
     }
     
     .chatbot-container {

@@ -24,6 +24,8 @@ function initializeMap() {
         maxZoom: 19,
         attribution: '© OpenStreetMap contributors © CARTO'
     }).addTo(mymap);
+    // vh birimleri için boyut hesaplaması - birkaç kez gecikmeli çağır
+    [100, 300, 600].forEach(ms => setTimeout(() => mymap && mymap.invalidateSize(), ms));
 }
 
 function initializeMap2() {
@@ -39,6 +41,8 @@ function initializeMap2() {
         maxZoom: 19,
         attribution: '© OpenStreetMap contributors © CARTO'
     }).addTo(mymap2);
+    // vh birimleri için boyut hesaplaması - birkaç kez gecikmeli çağır
+    [100, 300, 600].forEach(ms => setTimeout(() => mymap2 && mymap2.invalidateSize(), ms));
 }
 
 function getRiskColor(score) {
@@ -91,6 +95,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape' && modalOverlay && modalOverlay.classList.contains('active')) {
             closeModal();
         }
+    });
+    
+    // Pencere boyutu değişince haritaları güncelle (vh birimleri için)
+    window.addEventListener('resize', () => {
+        if (mymap) mymap.invalidateSize();
+        if (mymap2) mymap2.invalidateSize();
     });
     
     // API URL'ini dinamik olarak kullan (localhost veya production)
@@ -227,6 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 // İl heatmap overlay (city-damage verisi varsa)
                 if (cityRiskData) addCityHeatmapOverlay(cityRiskData);
+                if (mymap) mymap.invalidateSize();
             })
             .catch(error => {
                 console.error('Veri çekme hatası:', error);
@@ -335,6 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     mymap2.setView([39.9, 35.8], 6);
                 }
+                if (mymap2) mymap2.invalidateSize();
             })
             .catch(error => {
                 console.error('Veri çekme hatası:', error);

@@ -225,6 +225,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     mymap.setView([39.9, 35.8], 6);
                 }
+                // İl heatmap overlay (city-damage verisi varsa)
+                if (cityRiskData) addCityHeatmapOverlay(cityRiskData);
             })
             .catch(error => {
                 console.error('Veri çekme hatası:', error);
@@ -340,9 +342,99 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    // Canlı YZ Risk Göstergeleri + Harita heatmap
+    let cityRiskData = null;
+    let cityHeatmapLayer = null;
+
+    function getRiskLevelClass(score) {
+        if (score >= 70) return 'risk-high';
+        if (score >= 30) return 'risk-mid';
+        return 'risk-low';
+    }
+
+    function getRiskLabel(score) {
+        if (score >= 70) return 'YÜKSEK';
+        if (score >= 50) return 'ORTA-YÜKSEK';
+        if (score >= 30) return 'ORTA';
+        if (score >= 15) return 'DÜŞÜK';
+        return 'MİNİMAL';
+    }
+
+    function cityRisksToMap(cityRisks) {
+        const map = {};
+        (cityRisks || []).forEach(c => { map[c.city] = c; });
+        return map;
+    }
+
+    function updateRiskMeter(cityRisks) {
+        const grid = document.getElementById('riskMeterGrid');
+        if (!grid || !cityRisks) return;
+        const cities = ['İstanbul', 'Ankara', 'İzmir', 'Bursa', 'Kocaeli'];
+        const byCity = Array.isArray(cityRisks) ? cityRisksToMap(cityRisks) : cityRisks;
+        cities.forEach((cityName, i) => {
+            const item = grid.children[i];
+            if (!item) return;
+            const city = byCity[cityName];
+            if (city) {
+                const score = city.risk_score ?? city.total_risk_score ?? 0;
+                item.classList.remove('loading', 'risk-low', 'risk-mid', 'risk-high');
+                item.classList.add(getRiskLevelClass(score));
+                const valEl = item.querySelector('.risk-value');
+                if (valEl) valEl.textContent = getRiskLabel(score);
+            }
+        });
+    }
+
+    function addCityHeatmapOverlay(cityRisks) {
+        if (!mymap || !cityRisks) return;
+        if (cityHeatmapLayer) {
+            mymap.removeLayer(cityHeatmapLayer);
+            cityHeatmapLayer = null;
+        }
+        const layer = L.layerGroup();
+        const list = Array.isArray(cityRisks) ? cityRisks : Object.values(cityRisks || {});
+        for (const data of list) {
+            const cityName = data.city || data.name;
+            const lat = data.lat, lon = data.lon;
+            if (lat == null || lon == null) continue;
+            const score = data.risk_score ?? data.total_risk_score ?? 0;
+            let color = '#2ecc71';
+            if (score >= 70) color = '#e74c3c';
+            else if (score >= 30) color = '#f39c12';
+            const radius = 15000 + Math.min(score * 800, 50000);
+            L.circle([lat, lon], {
+                radius,
+                color,
+                fillColor: color,
+                fillOpacity: 0.25,
+                weight: 2
+            }).bindPopup(`<b>${cityName}</b><br>Risk: ${getRiskLabel(score)} (${score.toFixed(0)}/100)`).addTo(layer);
+        }
+        layer.addTo(mymap);
+        cityHeatmapLayer = layer;
+    }
+
+    function fetchCityRiskAndHeatmap() {
+        fetch(`${RENDER_API_BASE_URL}/api/city-damage-analysis`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors'
+        })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+            if (data && data.city_risks) {
+                cityRiskData = data.city_risks;
+                updateRiskMeter(cityRiskData);
+                addCityHeatmapOverlay(cityRiskData);
+            }
+        })
+        .catch(() => {});
+    }
+
     function fetchData() {
         fetchRiskData();
         fetchEarthquakeData();
+        fetchCityRiskAndHeatmap();
     } 
 
     // Konum Alma Fonksiyonu

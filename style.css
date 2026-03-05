@@ -170,25 +170,97 @@ h1 {
     letter-spacing: 1px;
 }
 
-/* Modern 2x2 Grid Layout - Compact */
+/* Real-time AI Risk Meter */
+.risk-meter {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 25px 30px;
+    margin-bottom: 35px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.risk-meter-title {
+    color: var(--color-white) !important;
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.risk-meter-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    justify-content: center;
+}
+
+.risk-meter-item {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    min-width: 180px;
+    transition: all 0.3s ease;
+}
+
+.risk-meter-item:hover {
+    transform: scale(1.03);
+    box-shadow: 0 0 20px rgba(255, 23, 68, 0.3);
+}
+
+.risk-meter-item.loading .risk-value { color: rgba(255,255,255,0.5); }
+.risk-meter-item.risk-low .risk-value { color: #2ecc71; }
+.risk-meter-item.risk-mid .risk-value { color: #f39c12; }
+.risk-meter-item.risk-high .risk-value { color: #e74c3c; }
+
+.risk-value { font-weight: 700; font-size: 1rem; }
+
+/* Map legend */
+.map-legend {
+    text-align: center;
+    margin-bottom: 15px !important;
+    font-size: 0.9em !important;
+    color: rgba(255,255,255,0.8) !important;
+}
+
+.legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+.legend-dot.low { background: #2ecc71; }
+.legend-dot.mid { background: #f39c12; }
+.legend-dot.high { background: #e74c3c; }
+
+/* Modern 2x2 Grid Layout - Ferah spacing */
 .cards-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-    margin-bottom: 40px;
-    max-width: 1200px;
+    gap: 30px;
+    margin-bottom: 50px;
+    max-width: 1400px;
     margin-left: auto;
     margin-right: auto;
 }
 
-/* Base Card Styles - Compact */
+/* Base Card Styles - Ferah padding */
 .card {
     background: rgba(255, 255, 255, 0.03);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 20px;
-    padding: 25px;
+    padding: 30px;
     box-shadow: 
         0 8px 32px rgba(0, 0, 0, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -305,10 +377,19 @@ h1 {
 @media (max-width: 768px) {
     .cards-grid {
         grid-template-columns: 1fr;
-        gap: 20px;
+        gap: 25px;
     }
     .settings-grid {
         grid-template-columns: 1fr;
+    }
+    .risk-meter-grid {
+        flex-direction: column;
+    }
+    .risk-meter-item {
+        min-width: 100%;
+    }
+    #mapid, #mapid2 {
+        height: 300px;
     }
 }
 
@@ -339,12 +420,13 @@ h1 {
 }
 
 .card:hover {
-    transform: translateY(-8px) scale(1.02);
+    transform: translateY(-8px) scale(1.03);
     box-shadow: 
         0 20px 60px rgba(0, 0, 0, 0.4),
-        0 0 40px rgba(255, 23, 68, 0.2),
+        0 0 50px rgba(255, 23, 68, 0.25),
+        0 0 80px rgba(157, 78, 221, 0.15),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 23, 68, 0.3);
+    border-color: rgba(255, 23, 68, 0.4);
 }
 
 .card h2 {
@@ -370,12 +452,17 @@ h1 {
     opacity: 0.3;
 }
 
-/* Maps Container - Compact */
+/* Map card full-width (ekranın ~80%) */
+.card-map-full {
+    grid-column: 1 / -1;
+}
+
+/* Maps Container */
 .maps-container {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 15px;
-    margin-bottom: 20px;
+    gap: 25px;
+    margin-bottom: 25px;
 }
 
 .map-wrapper {
@@ -396,9 +483,9 @@ h1 {
     border: 1px solid rgba(255, 23, 68, 0.2);
 }
 
-/* Map - Compact */
+/* Map - Geniş (full-width kartta daha büyük) */
 #mapid, #mapid2 {
-    height: 350px;
+    height: 420px;
     border-radius: 15px;
     box-shadow: 
         0 10px 40px rgba(0, 0, 0, 0.4),

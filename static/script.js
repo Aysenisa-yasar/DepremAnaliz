@@ -895,8 +895,8 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Risk tahmini hatası:', error);
             const isTimeout = error.name === 'AbortError';
             const msg = isTimeout
-                ? '⏱️ İstek zaman aşımına uğradı (90 sn). Sunucu uyku modundan uyanıyor olabilir. Lütfen 30 saniye bekleyip tekrar deneyin.'
-                : '⚠️ Sunucuya bağlanılamadı. Render.com backend\'i uyku modunda olabilir. Lütfen 30-60 saniye bekleyip tekrar deneyin.';
+                ? '⏱️ İstek zaman aşımına uğradı. Önce haritanın yüklenmesini bekleyin, sonra tekrar deneyin.'
+                : '⚠️ Sunucuya bağlanılamadı. Önce haritanın yüklenmesini bekleyin, sonra tekrar deneyin. Sunucu uyku modundaysa 15-20 saniye sürebilir.';
             openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>${msg}</p></div>`);
         });
     });
@@ -1098,10 +1098,13 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             mode: 'cors'
         })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) throw new Error(`Sunucu: ${response.status}`);
+                return response.json();
+            })
             .then(data => {
-                if (data.error) {
-                    openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
+                if (data.error || data.alert_level === 'HATA') {
+                    openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.message || data.error || 'Bilinmeyen hata'}</p></div>`);
                     return;
                 }
                 
@@ -1153,7 +1156,7 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 console.error('İstanbul erken uyarı hatası:', error);
-                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p></div>`);
+                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı.</p><p style="font-size: 0.9em; margin-top: 10px; opacity: 0.9;">Önce haritanın yüklenmesini bekleyin, sonra tekrar deneyin. Sunucu uyku modundaysa 15-20 saniye sürebilir.</p></div>`);
             });
     });
 

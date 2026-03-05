@@ -66,6 +66,9 @@ ARCHIVE_LIMIT = 2000  # 7 günlük analiz için yeterli
 # API veri cache (son 5 dakika)
 api_cache = {'data': None, 'timestamp': 0, 'cache_duration': 300}  # 5 dakika cache
 
+# Render free tier: 30 sn istek limiti. Kandilli timeout kısa tutulur.
+KANDILLI_TIMEOUT = 12  # Her istek max 12 sn (Live+Archive paralel = ~12 sn toplam)
+
 def _fetch_from_url(url, max_retries=2, timeout=60):
     """Tek bir URL'den veri çeker."""
     for attempt in range(max_retries):
@@ -78,18 +81,18 @@ def _fetch_from_url(url, max_retries=2, timeout=60):
             return response.json().get('result', []) or []
         except requests.exceptions.Timeout:
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(1)
                 continue
             return []
         except Exception:
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(1)
                 continue
             return []
     return []
 
 def fetch_earthquake_data_with_retry(url, max_retries=2, timeout=60):
-    """API'den veri çeker. Kandilli için Live + Archive birleştirilir, retry ve cache ile."""
+    """API'den veri çeker. Kandilli için Live + Archive paralel birleştirilir (Render 30sn limiti)."""
     global api_cache
 
     # Cache kontrolü (son 5 dakika içinde çekilen veriyi kullan)
@@ -98,10 +101,22 @@ def fetch_earthquake_data_with_retry(url, max_retries=2, timeout=60):
         print(f"[CACHE] Önbellekten veri döndürülüyor ({(current_time - api_cache['timestamp']):.0f} saniye önce)")
         return api_cache['data']
 
-    # Kandilli: Live + Archive birleştir (7 günlük time_window için)
+    # Kandilli: Live + Archive PARALEL çek (Render 30sn limiti için)
     if url == KANDILLI_API:
-        live_data = _fetch_from_url(KANDILLI_API, max_retries, timeout)
-        archive_data = _fetch_from_url(f"{KANDILLI_ARCHIVE_API}?limit={ARCHIVE_LIMIT}", max_retries, timeout)
+        live_result = [None]
+        archive_result = [None]
+        def fetch_live():
+            live_result[0] = _fetch_from_url(KANDILLI_API, 1, KANDILLI_TIMEOUT)
+        def fetch_archive():
+            archive_result[0] = _fetch_from_url(f"{KANDILLI_ARCHIVE_API}?limit={ARCHIVE_LIMIT}", 1, KANDILLI_TIMEOUT)
+        t1 = Thread(target=fetch_live)
+        t2 = Thread(target=fetch_archive)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+        live_data = live_result[0] or []
+        archive_data = archive_result[0] or []
         # Deduplicate by earthquake_id (archive ile live örtüşebilir)
         seen_ids = set()
         merged = []

@@ -457,10 +457,10 @@ h1 {
     grid-column: 1 / -1;
 }
 
-/* Maps Container */
+/* Maps Container - Her harita 2 kolonluk (tam genişlik) */
 .maps-container {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 25px;
     margin-bottom: 25px;
 }
@@ -469,6 +469,7 @@ h1 {
     display: flex;
     flex-direction: column;
     position: relative;
+    grid-column: 1 / -1;
 }
 
 .map-wrapper h3 {

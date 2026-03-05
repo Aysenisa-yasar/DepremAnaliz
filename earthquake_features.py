@@ -257,10 +257,10 @@ def compute_etas_features(recent_eqs: List[Dict], target_lat: float, target_lon:
 
 
 def _get_eq_timestamp(eq: Dict) -> float:
-    """Deprem timestamp'ini al (created_at veya date_time)."""
-    if 'created_at' in eq:
+    """Deprem timestamp'ini al (created_at, timestamp veya date_time)."""
+    if 'created_at' in eq and eq['created_at']:
         return float(eq['created_at'])
-    if 'timestamp' in eq:
+    if 'timestamp' in eq and eq['timestamp']:
         return float(eq['timestamp'])
     return time.time()
 
@@ -285,6 +285,9 @@ def extract_features(earthquakes: List[Dict], target_lat: float, target_lon: flo
         mag = eq.get('mag', 0)
         depth = eq.get('depth', 10)
         ts = _get_eq_timestamp(eq)
+        # Zaman penceresi filtresi (time_window_hours kullanılır)
+        if ts < window_start or ts > current_time:
+            continue
         distance = haversine(target_lat, target_lon, lat, lon)
 
         if distance < 300 and mag >= 1.5:
@@ -301,15 +304,18 @@ def extract_features(earthquakes: List[Dict], target_lat: float, target_lon: flo
     if not recent_eqs:
         all_eqs = []
         for eq in earthquakes:
-            if eq.get('geojson') and eq['geojson'].get('coordinates'):
-                lon, lat = eq['geojson']['coordinates']
-                mag = eq.get('mag', 0)
-                depth = eq.get('depth', 10)
-                ts = _get_eq_timestamp(eq)
-                distance = haversine(target_lat, target_lon, lat, lon)
-                if mag >= 1.0:
-                    all_eqs.append({'mag': mag, 'distance': distance, 'depth': depth,
-                                   'lat': lat, 'lon': lon, 'timestamp': ts})
+            if not eq.get('geojson') or not eq['geojson'].get('coordinates'):
+                continue
+            lon, lat = eq['geojson']['coordinates']
+            mag = eq.get('mag', 0)
+            depth = eq.get('depth', 10)
+            ts = _get_eq_timestamp(eq)
+            if ts < window_start or ts > current_time:
+                continue
+            distance = haversine(target_lat, target_lon, lat, lon)
+            if mag >= 1.0:
+                all_eqs.append({'mag': mag, 'distance': distance, 'depth': depth,
+                               'lat': lat, 'lon': lon, 'timestamp': ts})
         recent_eqs = all_eqs if all_eqs else []
 
     nearest_fault = float('inf')

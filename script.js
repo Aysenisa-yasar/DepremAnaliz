@@ -529,11 +529,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        openModal('🔮 AI Risk Tahmini', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">Risk tahmini yapılıyor...</p></div>');
+        openModal('🔮 AI Risk Tahmini', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">Risk tahmini yapılıyor...</p><p style="font-size: 0.85em; opacity: 0.7; margin-top: 10px;">İlk istek 50-60 saniye sürebilir (sunucu uyandırılıyor).</p></div>');
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 saniye timeout
         
         fetch(`${RENDER_API_BASE_URL}/api/predict-risk`, {
             mode: 'cors',
             method: 'POST',
+            signal: controller.signal,
             headers: {
                 'Content-Type': 'application/json',
             },
@@ -544,6 +548,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }),
         })
         .then(response => {
+            clearTimeout(timeoutId);
             if (!response.ok) {
                 throw new Error(`Sunucu hatası: ${response.status}`);
             }
@@ -627,8 +632,13 @@ document.addEventListener('DOMContentLoaded', () => {
             `);
         })
         .catch(error => {
+            clearTimeout(timeoutId);
             console.error('Risk tahmini hatası:', error);
-            openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p></div>`);
+            const isTimeout = error.name === 'AbortError';
+            const msg = isTimeout
+                ? '⏱️ İstek zaman aşımına uğradı (90 sn). Sunucu uyku modundan uyanıyor olabilir. Lütfen 30 saniye bekleyip tekrar deneyin.'
+                : '⚠️ Sunucuya bağlanılamadı. Render.com backend\'i uyku modunda olabilir. Lütfen 30-60 saniye bekleyip tekrar deneyin.';
+            openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>${msg}</p></div>`);
         });
     });
     

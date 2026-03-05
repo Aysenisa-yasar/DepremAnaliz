@@ -701,8 +701,7 @@ def extract_features(earthquakes, target_lat, target_lon, time_window_hours=24):
     except ImportError:
         pass
     features = {}
-        return None
-    
+
     # Zaman penceresi içindeki depremleri filtrele
     current_time = datetime.now()
     window_start = current_time - timedelta(hours=time_window_hours)

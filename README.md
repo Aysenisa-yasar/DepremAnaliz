@@ -6,7 +6,7 @@ Türkiye için gelişmiş makine öğrenmesi destekli deprem izleme ve erken uya
 
 - 🤖 **Gelişmiş ML Modelleri**: Random Forest + XGBoost + LightGBM Ensemble
 - 🏛️ **İstanbul Erken Uyarı Sistemi**: Özel algoritma ile 24-72 saat önceden uyarı
-- 📊 **Feature Engineering**: 17+ özellik ile gelişmiş risk analizi
+- 📊 **Feature Engineering**: 27+ özellik (ETAS, cluster, komşu aktivite dahil)
 - 🔍 **Anomali Tespiti**: Isolation Forest ile olağandışı aktivite tespiti
 - 🏙️ **İl Bazında Hasar Tahmini**: 81 il için otomatik analiz
 - 📱 **WhatsApp Bildirimleri**: Twilio entegrasyonu ile anında uyarı
@@ -41,12 +41,22 @@ $env:TWILIO_AUTH_TOKEN="your_auth_token"
 $env:TWILIO_WHATSAPP_NUMBER="whatsapp:+14155238886"
 ```
 
-5. **Uygulamayı çalıştırın:**
+5. **Veri toplama (opsiyonel, 26k+ deprem):**
+```bash
+python collect_large_dataset.py
+```
+
+6. **Model eğitimi:**
+```bash
+python train_models.py
+```
+
+7. **Uygulamayı çalıştırın:**
 ```bash
 python app.py
 ```
 
-6. **Frontend'i açın:**
+8. **Frontend'i açın:**
 Tarayıcıda `index.html` dosyasını açın.
 
 ## 🌐 Render.com'da Deploy
@@ -92,15 +102,16 @@ Render.com otomatik olarak deploy edecek. İlk deploy 5-10 dakika sürebilir.
 ## 📁 Proje Yapısı
 
 ```
-deprem-izleme-sistemi/
-├── app.py                 # Flask backend
-├── index.html            # Frontend
-├── script.js             # Frontend JavaScript
-├── requirements.txt      # Python bağımlılıkları
-├── render.yaml           # Render.com config
-├── Procfile              # Render.com process file
-├── .gitignore           # Git ignore dosyası
-└── README.md            # Bu dosya
+DepremAnaliz/
+├── app.py                    # Flask backend
+├── train_models.py           # ML eğitim pipeline
+├── earthquake_features.py    # Feature engineering (ETAS, cluster)
+├── collect_large_dataset.py # USGS 1990-2026 veri toplama
+├── dataset_manager.py       # Veri yönetimi, dedup
+├── ml_architectures.py      # Ensemble, LSTM, ETAS mimarileri
+├── models/                   # Eğitilmiş modeller
+├── requirements.txt
+└── README.md
 ```
 
 ## 🔧 Yapılandırma
@@ -119,10 +130,11 @@ Detaylı kurulum için: [TWILIO_HIZLI_KURULUM.md](TWILIO_HIZLI_KURULUM.md)
 
 ## 📊 Model Performansı
 
-- **Ensemble R²:** 0.9635 (%96.35 doğruluk)
-- **Cross-Validation:** 5-fold CV
-- **Feature Sayısı:** 17
-- **Eğitim Verisi:** 1,300+ örnek
+- **Ana Model:** XGBoost Regressor (risk skoru tahmini)
+- **Accuracy:** ~0.72–0.73 (risk sınıfı: düşük/orta/yüksek/çok yüksek)
+- **Feature Sayısı:** 27 (ETAS, cluster, neighbor_activity dahil)
+- **Eğitim Verisi:** ~121.000 kayıt (tarihsel genişletme ile 26k depremden)
+- **Veri Kaynağı:** USGS 1990–2026 arşiv, Kandilli, EMSC
 
 ## 🎯 API Endpoints
 

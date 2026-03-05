@@ -11,7 +11,7 @@ import pickle
 from datetime import datetime, timedelta
 from collections import deque
 
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request, make_response, render_template
 from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, IsolationForest
 from sklearn.preprocessing import StandardScaler
@@ -51,6 +51,12 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
     response.headers["Access-Control-Max-Age"] = "86400"
     return response 
+
+# --- FRONTEND (CORS'suz mimari: aynı domain) ---
+@app.route('/')
+def home():
+    """ Ana sayfa - Frontend dashboard (depremanaliz.onrender.com) """
+    return render_template('index.html')
 
 # Kandilli verilerini çeken üçüncü taraf API (Live + Archive)
 KANDILLI_API = 'https://api.orhanaydogdu.com.tr/deprem/kandilli/live'

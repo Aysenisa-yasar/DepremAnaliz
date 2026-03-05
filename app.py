@@ -30,16 +30,20 @@ from textblob import TextBlob
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
 
-# CORS - Kesin çözüm: tüm origin'lere izin
-CORS(app, supports_credentials=False)
+# CORS - Render için kesin çözüm
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-    response.headers["Access-Control-Max-Age"] = "86400"
-    return response 
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+# OPTIONS preflight - Tarayıcı önce OPTIONS gönderir, backend cevaplamalı
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def options_handler(path):
+    return '', 200 
 
 # Kandilli verilerini çeken üçüncü taraf API (Live + Archive)
 KANDILLI_API = 'https://api.orhanaydogdu.com.tr/deprem/kandilli/live'

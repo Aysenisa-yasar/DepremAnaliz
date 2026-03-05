@@ -458,21 +458,23 @@ h1 {
     width: 100%;
 }
 
-/* Maps Container - Her harita tam genişlik, alt alta */
-.maps-container {
-    display: flex;
-    flex-direction: column;
+/* Maps Container - Her harita tam genişlik, ALT ALTA (yan yana değil) */
+.card-map-full .maps-container {
+    display: flex !important;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
     gap: 25px;
     margin-bottom: 25px;
     width: 100%;
 }
 
-.map-wrapper {
-    display: flex;
-    flex-direction: column;
+.card-map-full .map-wrapper {
+    display: flex !important;
+    flex-direction: column !important;
     position: relative;
-    width: 100%;
-    min-width: 0; /* Flex overflow fix */
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 auto !important;
 }
 
 .map-wrapper h3 {

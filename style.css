@@ -515,11 +515,6 @@ h1 {
     border: 1px solid rgba(231, 76, 60, 0.5);
 }
 
-.chart-container {
-    position: relative;
-    width: 100%;
-}
-
 .prediction-item {
     padding: 12px 15px;
     margin-bottom: 8px;

@@ -515,11 +515,6 @@ h1 {
     border: 1px solid rgba(231, 76, 60, 0.5);
 }
 
-.chart-container {
-    position: relative;
-    width: 100%;
-}
-
 .prediction-item {
     padding: 12px 15px;
     margin-bottom: 8px;
@@ -1271,4 +1266,223 @@ h3, h4 {
 
 .card p {
     color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* ===== YENİ TASARIM: Bento Grid & Harita Altı ===== */
+.app-shell {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.header h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 2.2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.tagline {
+    font-size: 0.95rem;
+    opacity: 0.8;
+    margin-top: 4px;
+}
+
+.risk-meter-bar {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 16px 24px;
+    margin-bottom: 24px;
+}
+
+.risk-meter-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+}
+
+.risk-meter-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    font-size: 0.9rem;
+}
+
+.risk-meter-item.risk-high { background: rgba(231,76,60,0.2); border: 1px solid rgba(231,76,60,0.4); }
+.risk-meter-item.risk-mid { background: rgba(243,156,18,0.2); border: 1px solid rgba(243,156,18,0.4); }
+.risk-meter-item.risk-low { background: rgba(46,204,113,0.2); border: 1px solid rgba(46,204,113,0.4); }
+
+.map-section {
+    margin-bottom: 32px;
+}
+
+.map-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
+    overflow: hidden;
+    position: relative;
+}
+
+.map-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.map-header h2 { font-size: 1.2rem; }
+.map-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+.map-legend .dot.low { background: #2ecc71; }
+.map-legend .dot.mid { background: #f39c12; }
+.map-legend .dot.high { background: #e74c3c; }
+
+.map-container {
+    width: 100%;
+    height: 550px;
+    min-height: 450px;
+}
+
+.btn-refresh {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    padding: 10px 20px;
+    background: rgba(255,23,68,0.9);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    z-index: 1000;
+}
+
+.below-map {
+    margin-top: 32px;
+}
+
+.bento-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 20px;
+}
+
+.bento-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 20px;
+    min-height: 200px;
+}
+
+.bento-card h3 {
+    font-size: 1rem;
+    margin-bottom: 16px;
+    font-weight: 600;
+}
+
+.bento-m5 { grid-column: span 4; }
+.bento-cities { grid-column: span 4; }
+.bento-earthquakes { grid-column: span 4; }
+.bento-damage { grid-column: span 4; }
+.bento-anomaly { grid-column: span 4; }
+.bento-metrics { grid-column: span 4; }
+
+.bento-content {
+    font-size: 0.9rem;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.bento-content.loading, .bento-content .loading, .bento-content .hint {
+    color: rgba(255,255,255,0.6);
+}
+
+.city-search-wrap {
+    margin-bottom: 12px;
+}
+
+.search-input {
+    width: 100%;
+    padding: 10px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(0,0,0,0.3);
+    color: white;
+    font-size: 0.9rem;
+}
+
+.search-input::placeholder { color: rgba(255,255,255,0.4); }
+
+.city-list .city-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    font-size: 0.85rem;
+}
+
+.city-item.risk-high { border-left: 4px solid #e74c3c; }
+.city-item.risk-mid { border-left: 4px solid #f39c12; }
+.city-item.risk-low { border-left: 4px solid #2ecc71; }
+
+.eq-list .eq-item {
+    padding: 12px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    font-size: 0.85rem;
+    border-left: 4px solid #3498db;
+}
+
+.eq-item.mag-high { border-left-color: #e74c3c; }
+.eq-item.mag-mid { border-left-color: #f39c12; }
+
+.m5-item {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background: rgba(231,76,60,0.15);
+    border: 1px solid rgba(231,76,60,0.3);
+    font-size: 0.85rem;
+}
+
+.action-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+    margin-top: 32px;
+}
+
+.action-cards .card {
+    padding: 20px;
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 0.85rem;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+@media (max-width: 768px) {
+    .bento-m5, .bento-cities, .bento-earthquakes,
+    .bento-damage, .bento-anomaly, .bento-metrics {
+        grid-column: span 12;
+    }
 }

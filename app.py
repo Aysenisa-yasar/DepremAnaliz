@@ -30,19 +30,14 @@ from textblob import TextBlob
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
 
-# CORS ayarları - GitHub Pages ve Render.com için
+# CORS ayarları - GitHub Pages, Render ve tüm public erişim için
 CORS(app, resources={
     r"/api/*": {
-        "origins": [
-            "https://aysenisa-yasar.github.io",
-            "https://depremanaliz.onrender.com",
-            "http://localhost:5000",
-            "http://localhost:3000",
-            "http://127.0.0.1:5000",
-            "http://127.0.0.1:3000"
-        ],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
+        "origins": "*",  # Public API - tüm origin'lere izin (CORS hatasını önler)
+        "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+        "allow_headers": ["Content-Type", "Authorization", "Accept"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": False
     }
 }) 
 

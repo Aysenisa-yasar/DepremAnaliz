@@ -197,7 +197,7 @@ python scheduler.py
 
 ## 📝 Lisans
 
-Bu proje eğitim ve araştırma amaçlıdır.
+Bu proje [MIT Lisansı](LICENSE) altında lisanslanmıştır. Eğitim ve araştırma amaçlıdır.
 
 ## 🤝 Katkıda Bulunma
 

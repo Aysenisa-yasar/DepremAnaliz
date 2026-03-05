@@ -1,16 +1,54 @@
-# 🚀 Üst Düzey Yapay Zeka Destekli Deprem İzleme Sistemi
+# 🚀 DepremAnaliz — AI Destekli Deprem Risk Analizi
 
-Türkiye için gelişmiş makine öğrenmesi destekli deprem izleme ve erken uyarı sistemi.
+Türkiye için makine öğrenmesi destekli deprem izleme ve **kısa vadeli sismik risk tahmini** sistemi.
+
+> ⚠️ **Önemli:** Bu sistem **deprem tahmini** yapmaz. Depremler bilimsel olarak saat/gün seviyesinde tahmin edilemez. Sistem, mevcut deprem aktivitesine dayalı **risk sınıflandırması** sunar.
 
 ## ✨ Özellikler
 
-- 🤖 **Gelişmiş ML Modelleri**: Random Forest + XGBoost + LightGBM Ensemble
-- 🏛️ **İstanbul Erken Uyarı Sistemi**: Özel algoritma ile 24-72 saat önceden uyarı
-- 📊 **Feature Engineering**: 27+ özellik (ETAS, cluster, komşu aktivite dahil)
+- 🤖 **Gelişmiş ML Modelleri**: XGBoost + Random Forest + LightGBM Ensemble
+- 📊 **Sismik Risk Tahmini**: Kısa vadeli aktivite bazlı risk skoru (0–10)
+- 📊 **Feature Engineering**: 27 özellik (ETAS, cluster, komşu aktivite dahil)
 - 🔍 **Anomali Tespiti**: Isolation Forest ile olağandışı aktivite tespiti
 - 🏙️ **İl Bazında Hasar Tahmini**: 81 il için otomatik analiz
 - 📱 **WhatsApp Bildirimleri**: Twilio entegrasyonu ile anında uyarı
 - 🗺️ **Görselleştirme**: Aktif fay hatları ve risk bölgeleri haritası
+- 🔄 **Otomatik Güncelleme**: Her 30 dakikada veri, her 24 saatte model eğitimi
+
+---
+
+## 🏗️ Sistem Mimarisi
+
+```
+Veri Kaynakları (USGS, Kandilli, EMSC)
+              ↓
+      Data Collector
+              ↓
+    Feature Engineering
+   (ETAS, cluster, 27 özellik)
+              ↓
+    Training Records
+   (~121k örnek)
+              ↓
+   XGBoost + IsolationForest
+              ↓
+    Risk Skoru (0–10)
+              ↓
+   API → Frontend / WhatsApp
+```
+
+---
+
+## 📊 Dataset
+
+| Özellik | Değer |
+|---------|-------|
+| Ham deprem | ~26.000 |
+| Eğitim kaydı | ~121.000 (tarihsel genişletme) |
+| Zaman aralığı | 1990–2026 |
+| Kaynaklar | USGS, Kandilli, EMSC |
+
+---
 
 ## 🚀 Hızlı Başlangıç
 
@@ -18,8 +56,8 @@ Türkiye için gelişmiş makine öğrenmesi destekli deprem izleme ve erken uya
 
 1. **Repository'yi klonlayın:**
 ```bash
-git clone https://github.com/kullaniciadi/deprem-izleme-sistemi.git
-cd deprem-izleme-sistemi
+git clone https://github.com/Aysenisa-yasar/DepremAnaliz.git
+cd DepremAnaliz
 ```
 
 2. **Sanal ortam oluşturun:**
@@ -131,17 +169,27 @@ Detaylı kurulum için: [TWILIO_HIZLI_KURULUM.md](TWILIO_HIZLI_KURULUM.md)
 ## 📊 Model Performansı
 
 - **Ana Model:** XGBoost Regressor (risk skoru tahmini)
-- **Accuracy:** ~0.72–0.73 (risk sınıfı: düşük/orta/yüksek/çok yüksek)
+- **Risk Sınıfı Accuracy:** ~0.72–0.73 (düşük / orta / yüksek / çok yüksek)
 - **Feature Sayısı:** 27 (ETAS, cluster, neighbor_activity dahil)
 - **Eğitim Verisi:** ~121.000 kayıt (tarihsel genişletme ile 26k depremden)
 - **Veri Kaynağı:** USGS 1990–2026 arşiv, Kandilli, EMSC
+---
+
+## 🔄 Otomatik Veri & Eğitim
+
+```bash
+python scheduler.py
+```
+
+- **Her 30 dakika:** Kandilli, USGS, EMSC'den veri çekilir
+- **Her 24 saat:** Model güncel veriyle yeniden eğitilir
 
 ## 🎯 API Endpoints
 
 - `GET /api/risk` - Risk analizi
 - `GET /api/fault-lines` - Fay hatları
 - `POST /api/predict-risk` - ML destekli risk tahmini
-- `GET /api/istanbul-early-warning` - İstanbul erken uyarı
+- `GET /api/istanbul-early-warning` - İstanbul sismik risk analizi
 - `POST /api/anomaly-detection` - Anomali tespiti
 - `POST /api/city-damage-analysis` - İl bazında hasar analizi
 - `POST /api/set-alert` - WhatsApp bildirim ayarları

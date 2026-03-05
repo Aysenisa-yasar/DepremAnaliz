@@ -10,6 +10,11 @@ const API_URL = window.location.hostname === 'localhost' || window.location.host
 
 let mymap = null; 
 let mymap2 = null;
+
+// Leaflet self-hosted: icon path (Tracking Prevention için CDN yerine local)
+if (typeof L !== 'undefined') {
+    L.Icon.Default.imagePath = 'lib/leaflet/images/';
+}
 let predictionHistory = [];
 
 function initializeMap() {

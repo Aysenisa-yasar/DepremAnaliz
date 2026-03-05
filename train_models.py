@@ -44,7 +44,8 @@ FEATURE_NAMES = [
     'within_100km', 'nearest_fault_distance', 'activity_density',
     'magnitude_distance_ratio', 'magnitude_trend', 'neighbor_activity',
     'cluster_count', 'in_cluster', 'nearest_cluster_distance',
-    'cluster_density', 'max_cluster_size', 'nearest_cluster_max_mag'
+    'cluster_density', 'max_cluster_size', 'nearest_cluster_max_mag',
+    'etas_score', 'etas_max_influence', 'etas_event_count'
 ]
 MIN_TRAINING_SAMPLES = 50
 
@@ -78,7 +79,10 @@ def build_feature_vector_for_prediction(features: Dict) -> np.ndarray:
         features.get('nearest_cluster_distance', 300),
         features.get('cluster_density', 0),
         features.get('max_cluster_size', 0),
-        features.get('nearest_cluster_max_mag', 0)
+        features.get('nearest_cluster_max_mag', 0),
+        features.get('etas_score', 0),
+        features.get('etas_max_influence', 0),
+        features.get('etas_event_count', 0)
     ]
     X = np.array([base], dtype=np.float64)
     try:
@@ -119,7 +123,10 @@ def _build_feature_vector(record: Dict) -> Optional[List[float]]:
         features.get('nearest_cluster_distance', 300),
         features.get('cluster_density', 0),
         features.get('max_cluster_size', 0),
-        features.get('nearest_cluster_max_mag', 0)
+        features.get('nearest_cluster_max_mag', 0),
+        features.get('etas_score', 0),
+        features.get('etas_max_influence', 0),
+        features.get('etas_event_count', 0)
     ]
     return vector
 

@@ -219,6 +219,43 @@ def get_cluster_features(clusters: List[Dict], target_lat: float, target_lon: fl
     }
 
 
+# ETAS (Epidemic Type Aftershock Sequence) parametreleri
+ETAS_ALPHA = 1.0   # Magnitude etkisi: exp(α(M-M0))
+ETAS_M0 = 2.5      # Referans büyüklük
+ETAS_C = 0.01      # Zaman offset (saat) - sıfıra bölmeyi önler
+ETAS_P = 1.1      # Omori decay üssü: 1/(t+c)^p
+
+
+def compute_etas_features(recent_eqs: List[Dict], target_lat: float, target_lon: float,
+                          reference_time: float) -> Dict[str, float]:
+    """
+    Gerçek ETAS modeli: Her deprem başka depremler doğurabilir.
+    influence = mag_effect × time_decay × distance_decay
+    """
+    if not recent_eqs:
+        return {'etas_score': 0.0, 'etas_max_influence': 0.0, 'etas_event_count': 0}
+    influences = []
+    for eq in recent_eqs:
+        mag = float(eq.get('mag', 0) or 0)
+        dist_km = float(eq.get('distance', 300) or 300)
+        eq_ts = float(eq.get('timestamp', 0) or 0)
+        dt_sec = max(0, reference_time - eq_ts)
+        dt_hours = dt_sec / 3600.0
+        # Omori: 1/(t+c)^p
+        time_decay = 1.0 / ((dt_hours + ETAS_C) ** ETAS_P)
+        # Büyük deprem daha çok artçı üretir
+        mag_effect = np.exp(ETAS_ALPHA * (mag - ETAS_M0))
+        # Yakın deprem daha önemli
+        distance_decay = 1.0 / (dist_km + 1.0)
+        influence = mag_effect * time_decay * distance_decay
+        influences.append(influence)
+    return {
+        'etas_score': float(np.sum(influences)),
+        'etas_max_influence': float(np.max(influences)) if influences else 0.0,
+        'etas_event_count': len(recent_eqs)
+    }
+
+
 def _get_eq_timestamp(eq: Dict) -> float:
     """Deprem timestamp'ini al (created_at veya date_time)."""
     if 'created_at' in eq:
@@ -294,7 +331,8 @@ def extract_features(earthquakes: List[Dict], target_lat: float, target_lon: flo
             'shallow_quakes': 0, 'deep_quakes': 0,
             'time_since_last': 86400, 'regional_frequency': 0,
             'cluster_count': 0, 'in_cluster': 0, 'nearest_cluster_distance': 300,
-            'cluster_density': 0, 'max_cluster_size': 0, 'nearest_cluster_max_mag': 0
+            'cluster_density': 0, 'max_cluster_size': 0, 'nearest_cluster_max_mag': 0,
+            'etas_score': 0.0, 'etas_max_influence': 0.0, 'etas_event_count': 0
         }
         return empty
 
@@ -339,6 +377,10 @@ def extract_features(earthquakes: List[Dict], target_lat: float, target_lon: flo
     # Seismic cluster detection - deprem kümelenmesi sinyali
     clusters = detect_seismic_clusters(recent_eqs)
     features.update(get_cluster_features(clusters, target_lat, target_lon))
+
+    # ETAS (Epidemic Type Aftershock Sequence) - her deprem başka depremler doğurabilir
+    etas = compute_etas_features(recent_eqs, target_lat, target_lon, current_time)
+    features.update(etas)
 
     # Komşu aktivite: en yakın şehri bul, onun komşularının aktivitesi
     try:
@@ -550,7 +592,8 @@ def _extract_features_from_arrays(lats: np.ndarray, lons: np.ndarray, mags: np.n
             'time_since_last': 86400, 'regional_frequency': 0,
             'cluster_count': 0, 'in_cluster': 0, 'nearest_cluster_distance': 300,
             'cluster_density': 0, 'max_cluster_size': 0, 'nearest_cluster_max_mag': 0,
-            'neighbor_activity': 0.0
+            'neighbor_activity': 0.0,
+            'etas_score': 0.0, 'etas_max_influence': 0.0, 'etas_event_count': 0
         }
     d, m, dep, ts = dists[mask], mags[mask], depths[mask], timestamps[mask]
     la, lo = lats[mask], lons[mask]
@@ -595,6 +638,8 @@ def _extract_features_from_arrays(lats: np.ndarray, lons: np.ndarray, mags: np.n
     features['regional_frequency'] = features['count'] / (time_window_hours / 24) if time_window_hours > 0 else 0
     clusters = detect_seismic_clusters(recent_eqs)
     features.update(get_cluster_features(clusters, target_lat, target_lon))
+    etas = compute_etas_features(recent_eqs, target_lat, target_lon, current_time)
+    features.update(etas)
     if len(recent_eqs) >= 3:
         mid = len(recent_eqs) // 2
         first_avg = np.mean([e['mag'] for e in sorted(recent_eqs, key=lambda x: x['timestamp'])[:mid]])

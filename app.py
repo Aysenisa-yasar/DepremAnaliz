@@ -33,13 +33,21 @@ app = Flask(__name__)
 # CORS ayarları - GitHub Pages, Render ve tüm public erişim için
 CORS(app, resources={
     r"/api/*": {
-        "origins": "*",  # Public API - tüm origin'lere izin (CORS hatasını önler)
+        "origins": "*",
         "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
         "allow_headers": ["Content-Type", "Authorization", "Accept"],
         "expose_headers": ["Content-Type"],
         "supports_credentials": False
     }
-}) 
+})
+
+# CORS header'larını her yanıta zorla ekle (Render cold start / hata durumlarında da)
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
+    return response 
 
 # Kandilli verilerini çeken üçüncü taraf API (Live + Archive)
 KANDILLI_API = 'https://api.orhanaydogdu.com.tr/deprem/kandilli/live'

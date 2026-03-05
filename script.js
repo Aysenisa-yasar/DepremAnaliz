@@ -11,8 +11,6 @@ const API_URL = window.location.hostname === 'localhost' || window.location.host
 let mymap = null; 
 let mymap2 = null;
 let predictionHistory = [];
-let mlMetricsChart = null;
-let cityRiskChart = null; 
 
 function initializeMap() {
     if (mymap !== null && mymap._container) {
@@ -488,42 +486,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div><strong>Test Örnek:</strong> ${(m.samples_test || 0).toLocaleString()}</div>
                         </div>
                     `;
-                    updateMLChart(data);
                 } else {
                     el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Model henüz eğitilmemiş. "Modelleri Eğit" butonunu kullanın.</p>';
                 }
             })
             .catch(() => { el.innerHTML = '<p style="color: #FF1744;">Sunucuya bağlanılamadı.</p>'; });
-    }
-
-    function updateMLChart(data) {
-        const fi = data.feature_importance || {};
-        const entries = Object.entries(fi).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        const ctx = document.getElementById('mlMetricsChart');
-        if (!ctx || !entries.length || typeof Chart === 'undefined') return;
-        if (mlMetricsChart) mlMetricsChart.destroy();
-        mlMetricsChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: entries.map(([k]) => k.replace(/_/g, ' ')),
-                datasets: [{
-                    label: 'Özellik Önemi',
-                    data: entries.map(([, v]) => (v * 100).toFixed(2)),
-                    backgroundColor: 'rgba(255, 23, 68, 0.6)',
-                    borderColor: 'rgba(255, 23, 68, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } },
-                    x: { grid: { display: false }, ticks: { color: '#fff', maxRotation: 45 } }
-                }
-            }
-        });
     }
 
     function loadM5Risk(base) {
@@ -568,34 +535,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     html += `<div class="city-risk-item ${cls}"><span>${c.city}</span><span><strong>${c.risk_score.toFixed(1)}</strong> - ${c.risk_level}</span></div>`;
                 });
                 el.innerHTML = html;
-                updateCityRiskChart(data.city_risks);
             })
             .catch(() => { el.innerHTML = '<p style="color: #FF1744;">Sunucuya bağlanılamadı.</p>'; });
-    }
-
-    function updateCityRiskChart(cityRisks) {
-        const top = (cityRisks || []).slice(0, 12);
-        const ctx = document.getElementById('cityRiskChart');
-        if (!ctx || !top.length || typeof Chart === 'undefined') return;
-        if (cityRiskChart) cityRiskChart.destroy();
-        const colors = top.map(c => c.risk_score >= 50 ? 'rgba(231, 76, 60, 0.8)' : c.risk_score >= 30 ? 'rgba(243, 156, 18, 0.8)' : 'rgba(46, 204, 113, 0.8)');
-        cityRiskChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: top.map(c => c.city),
-                datasets: [{ label: 'Risk Skoru', data: top.map(c => c.risk_score), backgroundColor: colors, borderWidth: 1 }]
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { max: 100, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } },
-                    y: { grid: { display: false }, ticks: { color: '#fff' } }
-                }
-            }
-        });
     }
 
     function updatePredictionHistoryDisplay() {

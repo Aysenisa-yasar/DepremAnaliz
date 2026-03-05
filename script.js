@@ -9,7 +9,10 @@ const API_URL = window.location.hostname === 'localhost' || window.location.host
         : window.location.origin); // Diğer durumlarda aynı domain'i kullan
 
 let mymap = null; 
-let mymap2 = null; 
+let mymap2 = null;
+let predictionHistory = [];
+let mlMetricsChart = null;
+let cityRiskChart = null; 
 
 function initializeMap() {
     if (mymap !== null && mymap._container) {
@@ -454,6 +457,205 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchRiskData();
         fetchEarthquakeData();
         fetchCityRiskAndHeatmap();
+        loadDashboard();
+    }
+
+    // Dashboard: ML, M≥5, Şehir listesi
+    function loadDashboard() {
+        const base = typeof RENDER_API_BASE_URL !== 'undefined' ? RENDER_API_BASE_URL : (window.location.hostname.includes('github.io') ? 'https://depremanaliz.onrender.com' : window.location.origin);
+        loadMLMetrics(base);
+        loadM5Risk(base);
+        loadCityRisk(base);
+        updatePredictionHistoryDisplay();
+    }
+
+    function loadMLMetrics(base) {
+        const el = document.getElementById('mlMetricsContent');
+        if (!el) return;
+        fetch(`${base}/api/ml-metrics`, { method: 'GET', mode: 'cors' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success' && data.metrics) {
+                    const m = data.metrics;
+                    el.innerHTML = `
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                            <div><strong>Model:</strong> ${data.version || 'N/A'}</div>
+                            <div><strong>Eğitim:</strong> ${data.trained_at ? new Date(data.trained_at).toLocaleString('tr-TR') : 'N/A'}</div>
+                            <div><strong>Accuracy:</strong> ${(m.accuracy * 100 || 0).toFixed(2)}%</div>
+                            <div><strong>F1 Score:</strong> ${(m.f1_score * 100 || 0).toFixed(2)}%</div>
+                            <div><strong>MSE:</strong> ${(m.mse || 0).toFixed(4)}</div>
+                            <div><strong>Eğitim Örnek:</strong> ${(m.samples_train || 0).toLocaleString()}</div>
+                            <div><strong>Test Örnek:</strong> ${(m.samples_test || 0).toLocaleString()}</div>
+                        </div>
+                    `;
+                    updateMLChart(data);
+                } else {
+                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Model henüz eğitilmemiş. "Modelleri Eğit" butonunu kullanın.</p>';
+                }
+            })
+            .catch(() => { el.innerHTML = '<p style="color: #FF1744;">Sunucuya bağlanılamadı.</p>'; });
+    }
+
+    function updateMLChart(data) {
+        const fi = data.feature_importance || {};
+        const entries = Object.entries(fi).sort((a, b) => b[1] - a[1]).slice(0, 8);
+        const ctx = document.getElementById('mlMetricsChart');
+        if (!ctx || !entries.length || typeof Chart === 'undefined') return;
+        if (mlMetricsChart) mlMetricsChart.destroy();
+        mlMetricsChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: entries.map(([k]) => k.replace(/_/g, ' ')),
+                datasets: [{
+                    label: 'Özellik Önemi',
+                    data: entries.map(([, v]) => (v * 100).toFixed(2)),
+                    backgroundColor: 'rgba(255, 23, 68, 0.6)',
+                    borderColor: 'rgba(255, 23, 68, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } },
+                    x: { grid: { display: false }, ticks: { color: '#fff', maxRotation: 45 } }
+                }
+            }
+        });
+    }
+
+    function loadM5Risk(base) {
+        const el = document.getElementById('m5RiskContent');
+        if (!el) return;
+        fetch(`${base}/api/turkey-early-warning`, { method: 'GET', mode: 'cors' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'error') {
+                    el.innerHTML = `<p style="color: #FF1744;">${data.message || 'Hata'}</p>`;
+                    return;
+                }
+                const active = data.active_warnings || {};
+                const count = data.cities_with_warnings || 0;
+                if (count === 0) {
+                    el.innerHTML = '<p style="color: #2ecc71; font-weight: 600;">✅ Şu anda M ≥ 5.0 deprem riski tespit edilmedi.</p>';
+                    return;
+                }
+                let html = `<p style="margin-bottom: 15px;"><strong>${count}</strong> ilde uyarı var:</p>`;
+                Object.entries(active).forEach(([city, w]) => {
+                    const c = w.alert_level === 'KRİTİK' ? '#e74c3c' : w.alert_level === 'YÜKSEK' ? '#e67e22' : '#f39c12';
+                    html += `<div class="m5-warning-item"><strong>${city}</strong> - ${w.alert_level} (M${w.predicted_magnitude || '?'}) - ${w.message}</div>`;
+                });
+                el.innerHTML = html;
+            })
+            .catch(() => { el.innerHTML = '<p style="color: #FF1744;">Sunucuya bağlanılamadı.</p>'; });
+    }
+
+    function loadCityRisk(base) {
+        const el = document.getElementById('cityRiskContent');
+        if (!el) return;
+        fetch(`${base}/api/city-damage-analysis`, { method: 'GET', mode: 'cors' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status !== 'success' || !data.city_risks || !data.city_risks.length) {
+                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Veri yüklenemedi veya boş.</p>';
+                    return;
+                }
+                let html = '';
+                data.city_risks.forEach(c => {
+                    const cls = c.risk_score >= 50 ? 'risk-high' : c.risk_score >= 30 ? 'risk-mid' : 'risk-low';
+                    html += `<div class="city-risk-item ${cls}"><span>${c.city}</span><span><strong>${c.risk_score.toFixed(1)}</strong> - ${c.risk_level}</span></div>`;
+                });
+                el.innerHTML = html;
+                updateCityRiskChart(data.city_risks);
+            })
+            .catch(() => { el.innerHTML = '<p style="color: #FF1744;">Sunucuya bağlanılamadı.</p>'; });
+    }
+
+    function updateCityRiskChart(cityRisks) {
+        const top = (cityRisks || []).slice(0, 12);
+        const ctx = document.getElementById('cityRiskChart');
+        if (!ctx || !top.length || typeof Chart === 'undefined') return;
+        if (cityRiskChart) cityRiskChart.destroy();
+        const colors = top.map(c => c.risk_score >= 50 ? 'rgba(231, 76, 60, 0.8)' : c.risk_score >= 30 ? 'rgba(243, 156, 18, 0.8)' : 'rgba(46, 204, 113, 0.8)');
+        cityRiskChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: top.map(c => c.city),
+                datasets: [{ label: 'Risk Skoru', data: top.map(c => c.risk_score), backgroundColor: colors, borderWidth: 1 }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { max: 100, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } },
+                    y: { grid: { display: false }, ticks: { color: '#fff' } }
+                }
+            }
+        });
+    }
+
+    function updatePredictionHistoryDisplay() {
+        const el = document.getElementById('predictionHistoryContent');
+        if (!el) return;
+        if (!predictionHistory.length) {
+            el.innerHTML = '<p class="empty-text">Henüz tahmin yapılmadı. "Risk Tahmini" butonunu kullanın.</p>';
+            return;
+        }
+        el.innerHTML = predictionHistory.slice(-10).reverse().map(p => `
+            <div class="prediction-item">
+                <strong>${p.city || 'Konum'}</strong> - Skor: ${p.score}/10 (${p.level}) - ${p.time}
+            </div>
+        `).join('');
+    }
+
+    function addToPredictionHistory(data) {
+        const city = data.nearest_city || 'Bilinmeyen';
+        predictionHistory.push({
+            city,
+            score: data.risk_score,
+            level: data.risk_level || 'Bilinmiyor',
+            time: new Date().toLocaleString('tr-TR')
+        });
+        updatePredictionHistoryDisplay();
+    }
+
+    // Modelleri Eğit butonu
+    const trainModelsBtn = document.getElementById('trainModelsBtn');
+    if (trainModelsBtn) {
+        trainModelsBtn.addEventListener('click', () => {
+            trainModelsBtn.disabled = true;
+            trainModelsBtn.textContent = '⏳ Eğitiliyor...';
+            fetch(`${RENDER_API_BASE_URL}/api/train-models`, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' } })
+                .then(r => r.json())
+                .then(data => {
+                    trainModelsBtn.disabled = false;
+                    trainModelsBtn.textContent = '🔄 Modelleri Eğit';
+                    if (data.status === 'success') {
+                        loadMLMetrics(RENDER_API_BASE_URL);
+                        openModal('🤖 Model Eğitimi', `<div style="padding: 20px; text-align: center;"><p style="color: #2ecc71;">✅ ${data.message}</p><p>Versiyon: ${data.model_version || 'N/A'}</p></div>`);
+                    } else {
+                        openModal('🤖 Model Eğitimi', `<div style="padding: 20px; color: #FF1744;"><p>${data.message || data.error || 'Hata'}</p></div>`);
+                    }
+                })
+                .catch(() => {
+                    trainModelsBtn.disabled = false;
+                    trainModelsBtn.textContent = '🔄 Modelleri Eğit';
+                    openModal('🤖 Model Eğitimi', '<div style="padding: 20px; color: #FF1744;"><p>Sunucuya bağlanılamadı.</p></div>');
+                });
+        });
+    }
+
+    // Şehir listesi yenile butonu
+    const refreshCityRiskBtn = document.getElementById('refreshCityRiskBtn');
+    if (refreshCityRiskBtn) {
+        refreshCityRiskBtn.addEventListener('click', () => {
+            loadCityRisk(RENDER_API_BASE_URL);
+            fetchCityRiskAndHeatmap();
+        });
     } 
 
     // Konum Alma Fonksiyonu
@@ -732,6 +934,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             }
             
+            addToPredictionHistory(data);
             openModal('🔮 AI Risk Tahmini', `
                 <div style="background: linear-gradient(135deg, ${riskColor} 0%, ${riskColor}dd 100%); border-radius: 20px; padding: 30px; text-align: center; margin-bottom: 20px;">
                     <h3 style="margin: 0 0 15px 0; font-size: 2rem; font-weight: 800;">Risk Seviyesi: ${data.risk_level || 'Bilinmiyor'}</h3>

@@ -31,13 +31,14 @@ from textblob import TextBlob
 app = Flask(__name__)
 
 # CORS - Kesin çözüm: tüm origin'lere izin
-CORS(app)
+CORS(app, supports_credentials=False)
 
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+    response.headers["Access-Control-Max-Age"] = "86400"
     return response 
 
 # Kandilli verilerini çeken üçüncü taraf API (Live + Archive)
@@ -1841,6 +1842,7 @@ def predict_risk():
         
         # Gelişmiş ML modeli ile tahmin
         try:
+            nearest_city, _ = find_nearest_city(lat, lon)
             if use_ml:
                 prediction = predict_risk_with_ml(earthquake_data, lat, lon)
                 # Anomali tespiti ekle
@@ -1858,7 +1860,7 @@ def predict_risk():
             # Method kontrolü
             if 'method' not in prediction:
                 prediction['method'] = 'ml_ensemble' if use_ml else 'traditional'
-            
+            prediction['nearest_city'] = nearest_city or 'Bilinmeyen'
             return jsonify(prediction)
             
         except Exception as e:
@@ -1868,6 +1870,7 @@ def predict_risk():
                 prediction = predict_earthquake_risk(earthquake_data, lat, lon)
                 prediction['method'] = 'fallback'
                 prediction['warning'] = 'Gelişmiş analiz başarısız, temel analiz kullanıldı'
+                prediction['nearest_city'] = nearest_city or 'Bilinmeyen'
                 return jsonify(prediction)
             except Exception as e2:
                 print(f"[ERROR] Fallback risk tahmini de başarısız: {e2}")
@@ -2010,6 +2013,32 @@ def dataset_count():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/ml-metrics', methods=['GET'])
+def ml_metrics():
+    """ ML model metrikleri ve eğitim bilgisi (feature_importance.json). """
+    try:
+        fi_path = os.path.join('models', 'feature_importance.json')
+        if not os.path.exists(fi_path):
+            return jsonify({
+                "status": "no_model",
+                "message": "Henüz model eğitilmemiş.",
+                "metrics": None,
+                "feature_importance": None,
+                "trained_at": None,
+                "version": None
+            })
+        with open(fi_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return jsonify({
+            "status": "success",
+            "version": data.get('version'),
+            "trained_at": data.get('trained_at'),
+            "metrics": data.get('metrics', {}),
+            "feature_importance": data.get('feature_importance', {})
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/dataset-info', methods=['GET'])
 def dataset_info():

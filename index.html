@@ -7,6 +7,7 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css" crossorigin="anonymous"/>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -27,6 +28,51 @@
                 <div class="risk-meter-item loading"><span>İzmir</span><span class="risk-value">—</span></div>
                 <div class="risk-meter-item loading"><span>Bursa</span><span class="risk-value">—</span></div>
                 <div class="risk-meter-item loading"><span>Kocaeli</span><span class="risk-value">—</span></div>
+            </div>
+        </div>
+
+        <!-- ML & Analiz Dashboard -->
+        <div class="dashboard-section" id="dashboardSection">
+            <h2 class="dashboard-title">📊 ML Eğitim, Tahminler & Risk Analizi</h2>
+            
+            <!-- ML Metrikleri Kartı -->
+            <div class="card card-dashboard card-ml">
+                <h3>🤖 ML Model Durumu</h3>
+                <div id="mlMetricsContent" class="dashboard-content">
+                    <p class="loading-text">Yükleniyor...</p>
+                </div>
+                <div class="chart-container" style="height: 220px; margin-top: 20px;">
+                    <canvas id="mlMetricsChart"></canvas>
+                </div>
+                <button id="trainModelsBtn" class="btn-modern btn-secondary" style="margin-top: 15px;">🔄 Modelleri Eğit</button>
+            </div>
+
+            <!-- M≥5 Deprem Risk Analizi Kartı -->
+            <div class="card card-dashboard card-m5">
+                <h3>🚨 M ≥ 5.0 Deprem Risk Analizi</h3>
+                <div id="m5RiskContent" class="dashboard-content">
+                    <p class="loading-text">Yükleniyor...</p>
+                </div>
+            </div>
+
+            <!-- Tüm İller Risk Listesi -->
+            <div class="card card-dashboard card-cities">
+                <h3>🏙️ Tüm İllerin Risk Durumu</h3>
+                <div class="chart-container" style="height: 200px; margin-bottom: 15px;">
+                    <canvas id="cityRiskChart"></canvas>
+                </div>
+                <div id="cityRiskContent" class="dashboard-content city-list">
+                    <p class="loading-text">Yükleniyor...</p>
+                </div>
+                <button id="refreshCityRiskBtn" class="btn-modern btn-outline" style="margin-top: 15px;">🔄 Listeyi Yenile</button>
+            </div>
+
+            <!-- Tahmin Geçmişi -->
+            <div class="card card-dashboard card-predictions">
+                <h3>📍 Yapılan Risk Tahminleri</h3>
+                <div id="predictionHistoryContent" class="dashboard-content">
+                    <p class="empty-text">Henüz tahmin yapılmadı. "Risk Tahmini" butonunu kullanın.</p>
+                </div>
             </div>
         </div>
 

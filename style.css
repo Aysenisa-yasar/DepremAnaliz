@@ -449,6 +449,85 @@ h1 {
     opacity: 0.3;
 }
 
+/* Dashboard Section */
+.dashboard-section {
+    max-width: 1400px;
+    margin: 0 auto 50px;
+}
+
+.dashboard-title {
+    color: var(--color-white) !important;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.5rem;
+    margin-bottom: 25px;
+    text-align: center;
+}
+
+.card-dashboard {
+    margin-bottom: 25px;
+    min-height: 200px;
+}
+
+.card-dashboard h3 {
+    margin-bottom: 15px !important;
+    font-size: 1.2rem !important;
+}
+
+.dashboard-content {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+    padding: 20px;
+    min-height: 80px;
+}
+
+.dashboard-content.loading-text,
+.dashboard-content.empty-text {
+    color: rgba(255, 255, 255, 0.7) !important;
+    text-align: center;
+    padding: 30px !important;
+}
+
+.city-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.city-risk-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-left: 4px solid #95a5a6;
+}
+
+.city-risk-item.risk-high { border-left-color: #e74c3c; }
+.city-risk-item.risk-mid { border-left-color: #f39c12; }
+.city-risk-item.risk-low { border-left-color: #2ecc71; }
+
+.m5-warning-item {
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    background: rgba(231, 76, 60, 0.2);
+    border: 1px solid rgba(231, 76, 60, 0.5);
+}
+
+.chart-container {
+    position: relative;
+    width: 100%;
+}
+
+.prediction-item {
+    padding: 12px 15px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    font-size: 0.9em;
+}
+
 /* Harita kartları - Her biri 2 kart büyüklüğünde, tam genişlik, alt alta */
 .card-map {
     grid-column: 1 / -1;

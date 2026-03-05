@@ -10,8 +10,12 @@ ML model eğitimi modülü.
 - Metrikler: accuracy, f1 score, feature importance
 - feature_importance.json kaydetme
 """
-
 import os
+import sys
+# TensorFlow log azaltma (--architectures ile)
+if len(sys.argv) > 1 and sys.argv[1] == '--architectures':
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import json
 import pickle
 import numpy as np
@@ -38,9 +42,52 @@ FEATURE_NAMES = [
     'min_distance', 'mean_distance', 'mean_depth', 'mean_interval',
     'min_interval', 'mag_above_4', 'mag_above_5', 'within_50km',
     'within_100km', 'nearest_fault_distance', 'activity_density',
-    'magnitude_distance_ratio', 'magnitude_trend'
+    'magnitude_distance_ratio', 'magnitude_trend', 'neighbor_activity',
+    'cluster_count', 'in_cluster', 'nearest_cluster_distance',
+    'cluster_density', 'max_cluster_size', 'nearest_cluster_max_mag'
 ]
 MIN_TRAINING_SAMPLES = 50
+
+
+def build_feature_vector_for_prediction(features: Dict) -> np.ndarray:
+    """
+    Tahmin için feature vektörü (app ve servislerde kullanılır).
+    neighbor_activity + ETAS dahil.
+    """
+    base = [
+        features.get('count', 0),
+        features.get('max_magnitude', 0),
+        features.get('mean_magnitude', 0),
+        features.get('std_magnitude', 0),
+        features.get('min_distance', 300),
+        features.get('mean_distance', 300),
+        features.get('mean_depth', 10),
+        features.get('mean_interval', 3600),
+        features.get('min_interval', 3600),
+        features.get('mag_above_4', 0),
+        features.get('mag_above_5', 0),
+        features.get('within_50km', 0),
+        features.get('within_100km', 0),
+        features.get('nearest_fault_distance', 200),
+        features.get('activity_density', 0),
+        features.get('magnitude_distance_ratio', 0),
+        features.get('magnitude_trend', 0),
+        features.get('neighbor_activity', 0),
+        features.get('cluster_count', 0),
+        features.get('in_cluster', 0),
+        features.get('nearest_cluster_distance', 300),
+        features.get('cluster_density', 0),
+        features.get('max_cluster_size', 0),
+        features.get('nearest_cluster_max_mag', 0)
+    ]
+    X = np.array([base], dtype=np.float64)
+    try:
+        from ml_architectures import add_etas_features
+        base_names = [n for n in FEATURE_NAMES if n not in ('omori_decay', 'time_decay', 'mag_weighted_omori')]
+        X = add_etas_features(X, base_names)
+    except Exception:
+        pass
+    return np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def _build_feature_vector(record: Dict) -> Optional[List[float]]:
@@ -65,7 +112,14 @@ def _build_feature_vector(record: Dict) -> Optional[List[float]]:
         features.get('nearest_fault_distance', 200),
         features.get('activity_density', 0),
         features.get('magnitude_distance_ratio', 0),
-        features.get('magnitude_trend', 0)
+        features.get('magnitude_trend', 0),
+        features.get('neighbor_activity', 0),
+        features.get('cluster_count', 0),
+        features.get('in_cluster', 0),
+        features.get('nearest_cluster_distance', 300),
+        features.get('cluster_density', 0),
+        features.get('max_cluster_size', 0),
+        features.get('nearest_cluster_max_mag', 0)
     ]
     return vector
 
@@ -108,10 +162,13 @@ def load_and_prepare_data(
     """
     records = get_training_records(dataset_path)
     
-    # Yetersiz veri varsa sentetik ekle
+    # Yetersiz veri varsa sentetik ekle (bootstrap+noise tercih edilir)
     if len(records) < MIN_TRAINING_SAMPLES and add_synthetic_if_needed:
         print(f"[TRAIN] Veri yetersiz ({len(records)}), sentetik veri ekleniyor...")
-        synthetic = generate_synthetic_data(num_samples=MIN_TRAINING_SAMPLES - len(records) + 100)
+        synthetic = generate_synthetic_data(
+            num_samples=MIN_TRAINING_SAMPLES - len(records) + 100,
+            real_records=records
+        )
         records.extend(synthetic)
     
     if len(records) < MIN_TRAINING_SAMPLES:
@@ -132,7 +189,17 @@ def load_and_prepare_data(
     # NaN/Inf temizleme
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
     
+    # ETAS feature'ları ana modele ekle (Omori decay) - daha stabil
+    try:
+        from ml_architectures import add_etas_features
+        X = add_etas_features(X, FEATURE_NAMES)
+        if 'omori_decay' not in FEATURE_NAMES:
+            FEATURE_NAMES.extend(['omori_decay', 'time_decay', 'mag_weighted_omori'])
+    except Exception:
+        pass
+    
     print(f"[TRAIN] Veri hazır: {len(X)} örnek, {X.shape[1]} özellik")
+    print(f"[TRAIN] Toplam eğitim kaydı: {len(X)}")
     return X, y_reg, y_cls
 
 
@@ -170,7 +237,7 @@ def train_xgboost(X_train, y_train_reg, X_test, y_test_reg, y_test_cls) -> Tuple
         'samples_train': len(X_train),
         'samples_test': len(X_test)
     }
-    print(f"[TRAIN] XGBoost - Accuracy: {metrics['accuracy']}, F1: {metrics['f1_score']}, MSE: {metrics['mse']}")
+    print(f"[TRAIN] Train metrics: accuracy={metrics['accuracy']}, f1={metrics['f1_score']}, mse={metrics['mse']}")
     return model, metrics
 
 
@@ -341,5 +408,44 @@ def load_latest_model() -> Optional[Dict]:
         return None
 
 
+def train_and_compare_architectures(dataset_path: str = DEFAULT_DATASET_FILE) -> Optional[Dict]:
+    """
+    Tüm ML mimarilerini eğitir ve karşılaştırır.
+    Çıktı: XGBoost accuracy, IsolationForest anomaly, LSTM accuracy, ETAS accuracy
+    """
+    print("="*60)
+    print("ML MİMARİ KARŞILAŞTIRMASI")
+    print("="*60)
+    try:
+        X, y_reg, _ = load_and_prepare_data(dataset_path)
+    except Exception as e:
+        print(f"[TRAIN] Veri yükleme hatası: {e}")
+        return None
+
+    from dataset_manager import load_dataset, get_raw_earthquakes
+    from ml_architectures import train_all_architectures
+    data = load_dataset(dataset_path)
+    raw_eqs = get_raw_earthquakes(data)
+
+    results = train_all_architectures(X, y_reg, FEATURE_NAMES, raw_earthquakes=raw_eqs)
+
+    print("\n  Model              | Accuracy | F1      | MSE")
+    print("  " + "-"*50)
+    for name, r in results.items():
+        m = r.get('metrics', r)
+        if 'error' in m:
+            print(f"  {name:<18} | HATA: {m['error']}")
+        else:
+            acc = m.get('accuracy', 0)
+            f1 = m.get('f1_score', 0)
+            mse = m.get('mse', 0)
+            print(f"  {name:<18} | {acc:.4f}   | {f1:.4f}  | {mse:.4f}")
+    print("="*60)
+    return results
+
+
 if __name__ == "__main__":
-    train_all()
+    if len(sys.argv) > 1 and sys.argv[1] == '--architectures':
+        train_and_compare_architectures()
+    else:
+        train_all()

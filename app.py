@@ -691,10 +691,16 @@ def calculate_clustering_risk(earthquakes):
 def extract_features(earthquakes, target_lat, target_lon, time_window_hours=24):
     """
     Deprem verilerinden gelişmiş özellikler çıkarır (Feature Engineering).
+    earthquake_features modülü varsa cluster + neighbor dahil tam pipeline kullanılır.
     """
-    features = {}
-    
     if not earthquakes:
+        return None
+    try:
+        from earthquake_features import extract_features as eq_extract_features
+        return eq_extract_features(earthquakes, target_lat, target_lon, time_window_hours)
+    except ImportError:
+        pass
+    features = {}
         return None
     
     # Zaman penceresi içindeki depremleri filtrele
@@ -964,26 +970,25 @@ def predict_risk_with_ml(earthquakes, target_lat, target_lon):
         print(f"Model yüklenemedi: {e}")
         return {"risk_level": "Düşük", "risk_score": 2.0, "method": "fallback", "reason": "Model hatası"}
     
-    # Feature vektörü oluştur
-    feature_vector = np.array([[
-        features.get('count', 0),
-        features.get('max_magnitude', 0),
-        features.get('mean_magnitude', 0),
-        features.get('std_magnitude', 0),
-        features.get('min_distance', 300),
-        features.get('mean_distance', 300),
-        features.get('mean_depth', 10),
-        features.get('mean_interval', 3600),
-        features.get('min_interval', 3600),
-        features.get('mag_above_4', 0),
-        features.get('mag_above_5', 0),
-        features.get('within_50km', 0),
-        features.get('within_100km', 0),
-        features.get('nearest_fault_distance', 200),
-        features.get('activity_density', 0),
-        features.get('magnitude_distance_ratio', 0),
-        features.get('magnitude_trend', 0)
-    ]])
+    # Feature vektörü (neighbor_activity + ETAS dahil)
+    try:
+        from train_models import build_feature_vector_for_prediction
+        feature_vector = build_feature_vector_for_prediction(features)
+    except ImportError:
+        feature_vector = np.array([[
+            features.get('count', 0), features.get('max_magnitude', 0),
+            features.get('mean_magnitude', 0), features.get('std_magnitude', 0),
+            features.get('min_distance', 300), features.get('mean_distance', 300),
+            features.get('mean_depth', 10), features.get('mean_interval', 3600),
+            features.get('min_interval', 3600), features.get('mag_above_4', 0),
+            features.get('mag_above_5', 0), features.get('within_50km', 0),
+            features.get('within_100km', 0), features.get('nearest_fault_distance', 200),
+            features.get('activity_density', 0), features.get('magnitude_distance_ratio', 0),
+            features.get('magnitude_trend', 0), features.get('neighbor_activity', 0),
+            features.get('cluster_count', 0), features.get('in_cluster', 0),
+            features.get('nearest_cluster_distance', 300), features.get('cluster_density', 0),
+            features.get('max_cluster_size', 0), features.get('nearest_cluster_max_mag', 0)
+        ]])
     
     # Tahmin (XGBoost tek veya ensemble)
     if 'xgboost' in models and ('random_forest' not in models or 'lightgbm' not in models):
@@ -3222,10 +3227,8 @@ def collect_training_data_continuously():
     Her 30 dakikada veri çeker, günde bir kez model eğitir.
     """
     print("[VERI TOPLAMA] Sürekli veri toplama sistemi başlatıldı (modüler).")
-    last_training_time = 0
-    training_thresholds = [100, 500, 1000, 2000, 5000, 10000]
-    last_training_data_size = 0
-    
+    last_training_time = time.time()  # İlk 24 saat bekle, hemen eğitme
+
     while True:
         try:
             time.sleep(1800)  # Her 30 dakika
@@ -3246,20 +3249,11 @@ def collect_training_data_continuously():
                 archive_eq = fetch_archive_data()
                 add_earthquakes(archive_eq, EARTHQUAKE_HISTORY_FILE, source='kandilli')
                 
-                # 3. Şehir bazlı eğitim verisi
+                # 3. Şehir bazlı eğitim verisi (earthquake_features - app'ten bağımsız)
                 all_eq = live_eq + archive_eq
                 if all_eq:
-                    new_records = []
-                    for city_name, city_data in TURKEY_CITIES.items():
-                        lat, lon = city_data['lat'], city_data['lon']
-                        features = extract_features(all_eq, lat, lon, time_window_hours=168)
-                        if features and features.get('count', 0) > 0:
-                            risk_result = predict_earthquake_risk(all_eq, lat, lon)
-                            new_records.append({
-                                'city': city_name, 'lat': lat, 'lon': lon,
-                                'features': features, 'risk_score': risk_result.get('risk_score', 2.0),
-                                'timestamp': time.time()
-                            })
+                    from earthquake_features import create_training_records_from_earthquakes
+                    new_records = create_training_records_from_earthquakes(all_eq)
                     if new_records:
                         add_training_records(new_records, EARTHQUAKE_HISTORY_FILE)
                 
@@ -3269,30 +3263,15 @@ def collect_training_data_continuously():
                     synthetic = generate_synthetic_data(num_samples=100)
                     add_training_records(synthetic, EARTHQUAKE_HISTORY_FILE)
                 
-                # Mevcut veri sayısı
-                from dataset_manager import load_dataset
-                existing_data = load_dataset(EARTHQUAKE_HISTORY_FILE)
-                current_data_size = len(existing_data)
-                
-                # Otomatik model eğitimi (günde bir veya eşik aşıldığında)
+                # Otomatik model eğitimi: SADECE 24 saatte bir (eşik yok)
                 current_time = time.time()
-                should_train = False
-                if last_training_time == 0 or (current_time - last_training_time) >= 86400:
-                    should_train = True
-                elif current_data_size >= 50:
-                    for th in training_thresholds:
-                        if last_training_data_size < th <= current_data_size:
-                            should_train = True
-                            break
-                
-                if should_train:
-                    print("[OTOMATIK EGITIM] Model eğitimi başlatılıyor...")
+                if (current_time - last_training_time) >= 86400:  # 24 saat
+                    print("[OTOMATIK EGITIM] Model eğitimi başlatılıyor (24 saat doldu)...")
                     try:
                         from train_models import train_all
                         v = train_all(EARTHQUAKE_HISTORY_FILE)
                         if v:
                             last_training_time = current_time
-                            last_training_data_size = current_data_size
                             print(f"[OTOMATIK EGITIM] Model {v} eğitildi.")
                     except Exception as e:
                         print(f"[OTOMATIK EGITIM] Hata: {e}")
@@ -3514,5 +3493,13 @@ print("  - Veri seti 100, 500, 1000, 2000, 5000, 10000 kayıt eşiklerine ulaşt
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    # Model yoksa ilk kurulumda bir kez eğit
+    try:
+        from train_models import get_latest_model_path, train_all
+        if get_latest_model_path() is None:
+            print("[SISTEM] Model bulunamadı - ilk kurulum için bir kez eğitim yapılıyor...")
+            train_all()
+    except ImportError:
+        pass
     print(f"Flask Sunucusu Başlatıldı: http://127.0.0.1:{port}/api/risk")
     app.run(host='0.0.0.0', port=port)

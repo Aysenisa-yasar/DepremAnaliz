@@ -452,24 +452,27 @@ h1 {
     opacity: 0.3;
 }
 
-/* Map card full-width (ekranın ~80%) */
+/* Map card full-width (2 kolon = tam genişlik) */
 .card-map-full {
     grid-column: 1 / -1;
+    width: 100%;
 }
 
-/* Maps Container - Her harita 2 kolonluk (tam genişlik) */
+/* Maps Container - Her harita tam genişlik, alt alta */
 .maps-container {
-    display: grid;
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
     gap: 25px;
     margin-bottom: 25px;
+    width: 100%;
 }
 
 .map-wrapper {
     display: flex;
     flex-direction: column;
     position: relative;
-    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0; /* Flex overflow fix */
 }
 
 .map-wrapper h3 {
@@ -484,8 +487,9 @@ h1 {
     border: 1px solid rgba(255, 23, 68, 0.2);
 }
 
-/* Map - Geniş (full-width kartta daha büyük) */
+/* Map - Tam genişlik, 2 kolonluk alan */
 #mapid, #mapid2 {
+    width: 100% !important;
     height: 420px;
     border-radius: 15px;
     box-shadow: 
@@ -511,10 +515,6 @@ h1 {
 }
 
 @media (max-width: 768px) {
-    .maps-container {
-        grid-template-columns: 1fr;
-    }
-    
     #mapid, #mapid2 {
         height: 350px;
     }

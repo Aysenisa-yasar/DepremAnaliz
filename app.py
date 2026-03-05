@@ -30,25 +30,12 @@ from textblob import TextBlob
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
 
-# CORS ayarları - flask-cors ile GitHub Pages ve localhost
-CORS(app, origins=[
-    "https://aysenisa-yasar.github.io",
-    "http://localhost:5000",
-    "http://localhost:3000",
-    "http://127.0.0.1:5000",
-    "http://127.0.0.1:3000",
-    "https://depremanaliz.onrender.com"
-], supports_credentials=False)
+# CORS - Tüm origin'lere izin (CORS hatasını kesin çözer)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# CORS header'larını her yanıta ekle (tüm yanıtlarda çalışır)
-ALLOWED_ORIGINS = {
-    "https://aysenisa-yasar.github.io", "http://localhost:5000", "http://localhost:3000",
-    "http://127.0.0.1:5000", "http://127.0.0.1:3000", "https://depremanaliz.onrender.com"
-}
 @app.after_request
 def add_cors_headers(response):
-    origin = request.headers.get('Origin', '')
-    response.headers['Access-Control-Allow-Origin'] = origin if origin in ALLOWED_ORIGINS else 'https://aysenisa-yasar.github.io'
+    response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
     return response 

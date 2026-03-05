@@ -528,6 +528,11 @@ h1 {
     font-size: 0.9em;
 }
 
+/* Haritalar en başta */
+.maps-first {
+    margin-bottom: 40px;
+}
+
 /* Harita kartları - Her biri 2 kart büyüklüğünde, tam genişlik, alt alta */
 .card-map {
     grid-column: 1 / -1;

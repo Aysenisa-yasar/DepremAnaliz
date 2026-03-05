@@ -31,6 +31,23 @@
             </div>
         </div>
 
+        <!-- Haritalar - En başta -->
+        <div class="cards-grid maps-first">
+            <div class="card card-map card-map-1">
+                <h3 class="map-card-title">🤖 YZ Risk Analizi</h3>
+                <p class="map-legend"><span class="legend-dot low"></span> Düşük risk &nbsp; <span class="legend-dot mid"></span> Orta risk &nbsp; <span class="legend-dot high"></span> Yüksek risk</p>
+                <div id="mapid" class="map-in-card"></div>
+            </div>
+            <div class="card card-map card-map-2">
+                <h3 class="map-card-title">📍 Son 1 Gün Depremler & Aktif Fay Hatları</h3>
+                <div id="mapid2" class="map-in-card"></div>
+                <button id="refreshButton" class="btn-modern btn-large">🔄 Haritaları Yenile</button>
+                <div id="earthquake-list" style="margin-top: 20px;">
+                    <p>YZ Risk analizi verileri yükleniyor...</p>
+                </div>
+            </div>
+        </div>
+
         <!-- ML & Analiz Dashboard -->
         <div class="dashboard-section" id="dashboardSection">
             <h2 class="dashboard-title">📊 ML Eğitim, Tahminler & Risk Analizi</h2>
@@ -78,23 +95,6 @@
 
         <!-- Modern Asymmetric Grid Layout -->
         <div class="cards-grid">
-            <!-- Harita Kartı 1 - YZ Risk Analizi (2 kart büyüklüğünde) -->
-            <div class="card card-map card-map-1">
-                <h3 class="map-card-title">🤖 YZ Risk Analizi</h3>
-                <p class="map-legend"><span class="legend-dot low"></span> Düşük risk &nbsp; <span class="legend-dot mid"></span> Orta risk &nbsp; <span class="legend-dot high"></span> Yüksek risk</p>
-                <div id="mapid" class="map-in-card"></div>
-            </div>
-
-            <!-- Harita Kartı 2 - Son 1 Gün Depremler (2 kart büyüklüğünde) -->
-            <div class="card card-map card-map-2">
-                <h3 class="map-card-title">📍 Son 1 Gün Depremler & Aktif Fay Hatları</h3>
-                <div id="mapid2" class="map-in-card"></div>
-                <button id="refreshButton" class="btn-modern btn-large">🔄 Haritaları Yenile</button>
-                <div id="earthquake-list" style="margin-top: 20px;">
-                    <p>YZ Risk analizi verileri yükleniyor...</p>
-                </div>
-            </div>
-
             <!-- Orta Kart - İstanbul (1 kolon, yüksek) -->
             <div class="card card-medium card-istanbul">
                 <div class="card-icon">🏛️</div>

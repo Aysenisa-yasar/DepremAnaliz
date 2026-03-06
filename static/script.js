@@ -1,41 +1,70 @@
 // script.js
-// API URL: CORS'suz mimari - aynı domain'de relative path kullan (depremanaliz.onrender.com)
-// GitHub Pages'den açılırsa (eski link) Render backend'e cross-origin bağlan
+// API URL'ini dinamik olarak belirle
 const RENDER_BACKEND_URL = 'https://depremanaliz.onrender.com';
-const isSameOrigin = window.location.hostname === 'depremanaliz.onrender.com' ||
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-const API_URL = isSameOrigin ? '' : (window.location.hostname.includes('github.io') ? RENDER_BACKEND_URL : window.location.origin);
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:5000'
+    : (window.location.hostname.includes('github.io') 
+        ? RENDER_BACKEND_URL  // GitHub Pages'den Render.com backend'e bağlan
+        : window.location.origin); // Diğer durumlarda aynı domain'i kullan
 
-let mymap = null;
-let cityRiskData = null;
-let cityHeatmapLayer = null;
-let earthquakeMarkersLayer = null;
+// API hata loglama - tarayıcı konsolunda (F12) detaylı hata görmek için
+function logApiError(apiName, url, error, response) {
+    const detail = {
+        api: apiName,
+        url: url,
+        error: error?.message || String(error),
+        errorName: error?.name,
+        errorType: error?.constructor?.name,
+        status: response?.status,
+        statusText: response?.statusText,
+        origin: window.location.origin,
+        timestamp: new Date().toISOString()
+    };
+    console.error('[API HATA]', apiName, '| URL:', url, '| Hata:', detail.error, '| Detay:', detail);
+}
 
+let mymap = null; 
+let mymap2 = null;
+
+// Leaflet self-hosted: icon path (Tracking Prevention için CDN yerine local)
 if (typeof L !== 'undefined') {
     L.Icon.Default.imagePath = '/static/lib/leaflet/images/';
 }
-
-function formatEqDate(eq) {
-    const ts = eq.created_at || eq.timestamp || 0;
-    if (ts) {
-        const d = new Date(ts * 1000);
-        return d.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
-    }
-    return (eq.date || '') + ' ' + (eq.time || '') || 'Bilinmiyor';
-}
+let predictionHistory = [];
 
 function initializeMap() {
     if (mymap !== null && mymap._container) {
         mymap.remove();
         mymap = null;
     }
-    mymap = L.map('mapid').setView([39.9, 35.8], 6);
+    
+    mymap = L.map('mapid').setView([39.9, 35.8], 6); 
+
+    // Koyu tema harita
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
-        attribution: '© OpenStreetMap © CARTO'
+        attribution: '© OpenStreetMap contributors © CARTO'
     }).addTo(mymap);
+    // Leaflet boyut hesaplaması - birkaç kez gecikmeli çağır
     [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap && mymap.invalidateSize(), ms));
+}
+
+function initializeMap2() {
+    if (mymap2 !== null && mymap2._container) {
+        mymap2.remove();
+        mymap2 = null;
+    }
+    
+    mymap2 = L.map('mapid2').setView([39.9, 35.8], 6); 
+
+    // Koyu tema harita
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors © CARTO'
+    }).addTo(mymap2);
+    // Leaflet boyut hesaplaması - birkaç kez gecikmeli çağır
+    [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap2 && mymap2.invalidateSize(), ms));
 }
 
 function getRiskColor(score) {
@@ -90,11 +119,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    window.addEventListener('resize', () => { if (mymap) mymap.invalidateSize(); });
-    window.addEventListener('load', () => { setTimeout(() => mymap && mymap.invalidateSize(), 100); });
+    // Pencere boyutu değişince haritaları güncelle
+    window.addEventListener('resize', () => {
+        if (mymap) mymap.invalidateSize();
+        if (mymap2) mymap2.invalidateSize();
+    });
+    // Sayfa tam yüklendiğinde harita boyutlarını güncelle
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            if (mymap) mymap.invalidateSize();
+            if (mymap2) mymap2.invalidateSize();
+        }, 100);
+    });
     
     // API URL'ini dinamik olarak kullan (localhost veya production)
     const RENDER_API_BASE_URL = API_URL;
+    console.log('[API] Base URL:', RENDER_API_BASE_URL, '| Origin:', window.location.origin);
     
     // Render.com'u uyanık tutmak için düzenli ping (her 10 dakikada bir)
     // Free plan'da 15 dakika inaktiflikten sonra uyku moduna geçer
@@ -131,12 +171,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         console.log('[PING] Render.com uyanık tutma sistemi aktif (her 10 dakikada bir ping)');
     }
-    const apiURL = `${RENDER_API_BASE_URL}/api/risk`;
-    const eqListEl = document.getElementById('earthquakeList');
-    const m5ListEl = document.getElementById('m5RiskList');
-    const cityListEl = document.getElementById('cityRiskList');
-    const anomalyEl = document.getElementById('anomalyContent');
-    const metricsEl = document.getElementById('metricsDetail');
+    const apiURL = `${RENDER_API_BASE_URL}/api/risk`; 
+    
+    const listContainer = document.getElementById('earthquake-list');
     const refreshButton = document.getElementById('refreshButton');
     
     const getLocationButton = document.getElementById('getLocationButton');
@@ -150,85 +187,206 @@ document.addEventListener('DOMContentLoaded', () => {
     // Manuel hasar tahmini kaldırıldı
     // Manuel hasar tahmini kaldırıldı
     const predictRiskButton = document.getElementById('predictRiskButton');
+    const riskPredictionResult = document.getElementById('riskPredictionResult');
     const analyzeCityDamageButton = document.getElementById('analyzeCityDamageButton');
+    const cityDamageResult = document.getElementById('cityDamageResult');
     const checkIstanbulWarningButton = document.getElementById('checkIstanbulWarningButton');
+    const istanbulWarningResult = document.getElementById('istanbulWarningResult');
 
     let userCoords = null; 
 
-    // Tek harita: Risk + Depremler + Fay + M5 + İl overlay
+    // İlk harita: Risk Analizi
     function fetchRiskData() {
-        if (eqListEl) eqListEl.innerHTML = '<p class="loading">Yükleniyor...</p>';
-        initializeMap();
+        listContainer.innerHTML = '<p>YZ risk analizi verileri yükleniyor...</p>';
+        initializeMap(); 
 
-        fetch(apiURL, { method: 'GET', headers: { 'Content-Type': 'application/json' }, mode: 'cors' })
-            .then(r => (!r.ok && (r.status === 503 || r.status === 502)) ? null : (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        fetch(apiURL, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors'
+        })
+            .then(response => {
+                if (!response.ok) {
+                    if (response.status === 503 || response.status === 502) {
+                        listContainer.innerHTML = `<p style="color: #FFA726;">⚠️ Sunucu uyku modunda. Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>`;
+                        return null;
+                    }
+                    throw new Error(`Sunucu hatası: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data) return; // Uyku modu durumunda çık
+                
+                listContainer.innerHTML = '';
+                let bounds = [];
+                
+                // Hata kontrolü
+                if (data.error) {
+                    listContainer.innerHTML = `<p style="color: #FF1744;">Hata: ${data.error}</p>`;
+                    return;
+                }
+                
+                // YZ Risk bölgelerini ekle (SADECE RİSK ANALİZİ)
+                if (data.risk_regions && data.risk_regions.length > 0) {
+                    data.risk_regions.forEach(riskRegion => {
+                        const { lat, lon, score, density } = riskRegion;
+                        bounds.push([lat, lon]);
+                        
+                        const color = getRiskColor(score);
+                        
+                        const marker = L.circleMarker([lat, lon], {
+                            radius: score * 1.5, 
+                            color: color,
+                            fillColor: color,
+                            fillOpacity: 0.6,
+                            weight: 3
+                        }).addTo(mymap);
+                        
+                        const popupContent = `
+                            <b style="color: ${color};">🤖 YZ Risk Merkezi #${riskRegion.id + 1}</b><br>
+                            Risk Puanı: <b>${score.toFixed(1)} / 10</b><br>
+                            Yoğunluk: ${density} deprem
+                        `;
+                        marker.bindPopup(popupContent);
+                    });
+                }
+                
+                // Veri yoksa mesaj göster
+                if (!data.risk_regions || data.risk_regions.length === 0) {
+                    listContainer.innerHTML = '<p style="color: #FF1744;">Şu anda yeterli risk analizi verisi yok.</p>';
+                }
+                
+                // Haritayı tüm işaretlere göre ayarla
+                if (bounds.length > 0) {
+                    mymap.fitBounds(bounds, { padding: [50, 50] });
+                } else {
+                    mymap.setView([39.9, 35.8], 6);
+                }
+                // İl heatmap overlay (city-damage verisi varsa)
+                if (cityRiskData) addCityHeatmapOverlay(cityRiskData);
+                if (mymap) mymap.invalidateSize();
+            })
+            .catch(error => {
+                logApiError('fetchRiskData', apiURL, error);
+                listContainer.innerHTML = `<p style="color: #FF1744;">Hata: YZ sunucusuna bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 ile konsolu açıp [API HATA] loglarını kontrol edin.</p>`;
+            });
+    }
+
+    // İkinci harita: Son 1 Gün Depremler + Aktif Fay Hatları
+    function fetchEarthquakeData() {
+        initializeMap2(); 
+
+        fetch(apiURL, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors'
+        })
+            .then(response => {
+                if (!response.ok) {
+                    if (response.status === 503 || response.status === 502) {
+                        console.warn('Sunucu uyku modunda, cache verisi kullanılıyor');
+                        return null; // Hata fırlatma, sadece null döndür
+                    }
+                    throw new Error(`Sunucu hatası: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (!data) {
-                    if (eqListEl) eqListEl.innerHTML = '<p class="loading">Sunucu uyanıyor, lütfen bekleyin...</p>';
+                    console.warn('Veri alınamadı, harita boş kalabilir');
                     return;
                 }
                 let bounds = [];
-
-                // 1. Fay hatları
+                
+                // Hata kontrolü
+                if (data.error) {
+                    return;
+                }
+                
+                // 1. Aktif fay hatlarını haritaya ekle
                 if (data.fault_lines && data.fault_lines.length > 0) {
                     data.fault_lines.forEach(fault => {
-                        const coords = fault.coords.map(c => [c[0], c[1]]);
-                        L.polyline(coords, { color: '#FF1744', weight: 4, opacity: 0.8, dashArray: '10, 5' })
-                            .bindPopup(`<b>${fault.name}</b><br>⚠️ Aktif Fay Hattı`).addTo(mymap);
-                        bounds.push(...coords);
+                        const faultCoords = fault.coords.map(coord => [coord[0], coord[1]]);
+                        const polyline = L.polyline(faultCoords, {
+                            color: '#FF1744',  // Kırmızı
+                            weight: 4,
+                            opacity: 0.8,
+                            dashArray: '10, 5'  // Kesikli çizgi
+                        }).addTo(mymap2);
+                        polyline.bindPopup(`<b style="color: #FF1744;">${fault.name}</b><br>⚠️ Aktif Fay Hattı`);
+                        bounds.push(...faultCoords);
                     });
                 }
-
-                // 2. Depremler - Konum, Tarih, Derinlik, Şiddet popup
-                const eqs = data.recent_earthquakes || [];
-                if (earthquakeMarkersLayer) mymap.removeLayer(earthquakeMarkersLayer);
-                earthquakeMarkersLayer = L.layerGroup();
-                eqs.forEach((eq, i) => {
-                    if (!eq.geojson || !eq.geojson.coordinates) return;
-                    const [lon, lat] = eq.geojson.coordinates;
-                    const mag = eq.mag || 0;
-                    const loc = eq.location || 'Bilinmiyor';
-                    const tarih = formatEqDate(eq);
-                    const derinlik = (eq.depth != null ? eq.depth : 'N/A') + (typeof eq.depth === 'number' ? ' km' : '');
-                    bounds.push([lat, lon]);
-                    let eqColor = '#2ecc71', radius = 5;
-                    if (mag >= 5.0) { eqColor = '#FF1744'; radius = 12; }
-                    else if (mag >= 4.0) { eqColor = '#f39c12'; radius = 8; }
-                    else if (mag >= 3.0) { eqColor = '#3498db'; radius = 6; }
-                    const m = L.circleMarker([lat, lon], { radius, color: '#000', fillColor: eqColor, fillOpacity: 0.8, weight: 2 });
-                    m.bindPopup(`<b>📍 Konum:</b> ${loc}<br><b>📅 Tarih:</b> ${tarih}<br><b>📏 Derinlik:</b> ${derinlik}<br><b>💥 Şiddet:</b> M${mag.toFixed(1)}`);
-                    m.addTo(earthquakeMarkersLayer);
-                });
-                earthquakeMarkersLayer.addTo(mymap);
-
-                // 3. YZ Risk bölgeleri
-                (data.risk_regions || []).forEach(rr => {
-                    const c = getRiskColor(rr.score);
-                    L.circleMarker([rr.lat, rr.lon], { radius: rr.score * 1.5, color: c, fillColor: c, fillOpacity: 0.6, weight: 3 })
-                        .bindPopup(`<b>🤖 YZ Risk</b><br>Puan: ${rr.score.toFixed(1)}/10<br>Yoğunluk: ${rr.density}`).addTo(mymap);
-                    bounds.push([rr.lat, rr.lon]);
-                });
-
-                if (bounds.length > 0) mymap.fitBounds(bounds, { padding: [50, 50] });
-                else mymap.setView([39.9, 35.8], 6);
-                if (cityRiskData) addCityHeatmapOverlay(cityRiskData);
-                mymap.invalidateSize();
-
-                // Son depremler listesi
-                if (eqListEl) {
-                    if (eqs.length === 0) eqListEl.innerHTML = '<p class="loading">Deprem verisi yok.</p>';
-                    else eqListEl.innerHTML = eqs.slice(0, 15).map(eq => {
-                        const loc = eq.location || 'Bilinmiyor';
-                        const mag = eq.mag || 0;
-                        const cls = mag >= 5 ? 'mag-high' : mag >= 4 ? 'mag-mid' : '';
-                        return `<div class="eq-item ${cls}"><strong>${loc}</strong> · M${mag.toFixed(1)} · ${formatEqDate(eq)} · ${eq.depth != null ? eq.depth + ' km' : '-'}</div>`;
-                    }).join('');
+                
+                // 2. Son 1 günde olan depremleri haritaya ekle
+                if (data.recent_earthquakes && data.recent_earthquakes.length > 0) {
+                    data.recent_earthquakes.forEach((eq, index) => {
+                        if (eq.geojson && eq.geojson.coordinates) {
+                            const [lon, lat] = eq.geojson.coordinates;
+                            const mag = eq.mag || 0;
+                            const location = eq.location || 'Bilinmiyor';
+                            const date = eq.date || '';
+                            const time = eq.time || '';
+                            
+                            bounds.push([lat, lon]);
+                            
+                            // Büyüklüğe göre renk ve boyut
+                            let eqColor = '#2ecc71'; // Yeşil (düşük)
+                            let radius = 5;
+                            if (mag >= 5.0) {
+                                eqColor = '#FF1744'; // Kırmızı (yüksek)
+                                radius = 12;
+                            } else if (mag >= 4.0) {
+                                eqColor = '#f39c12'; // Turuncu (orta)
+                                radius = 8;
+                            } else if (mag >= 3.0) {
+                                eqColor = '#3498db'; // Mavi (düşük-orta)
+                                radius = 6;
+                            }
+                            
+                            // Deprem marker'ı
+                            const eqMarker = L.circleMarker([lat, lon], {
+                                radius: radius,
+                                color: '#000',
+                                fillColor: eqColor,
+                                fillOpacity: 0.8,
+                                weight: 2
+                            }).addTo(mymap2);
+                            
+                            const popupContent = `
+                                <b>📍 Deprem #${index + 1}</b><br>
+                                <b>Büyüklük: M${mag.toFixed(1)}</b><br>
+                                Konum: ${location}<br>
+                                Tarih: ${date} ${time}<br>
+                                Derinlik: ${eq.depth || 'N/A'} km
+                            `;
+                            eqMarker.bindPopup(popupContent);
+                        }
+                    });
                 }
+                
+                // Haritayı tüm işaretlere göre ayarla
+                if (bounds.length > 0) {
+                    mymap2.fitBounds(bounds, { padding: [50, 50] });
+                } else {
+                    mymap2.setView([39.9, 35.8], 6);
+                }
+                if (mymap2) mymap2.invalidateSize();
             })
-            .catch(e => {
-                if (eqListEl) eqListEl.innerHTML = `<p style="color:#FF1744;">Bağlantı hatası. Yenileyin.</p>`;
+            .catch(error => {
+                logApiError('fetchEarthquakeData', apiURL, error);
+                listContainer.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p>`;
             });
     }
+
+    // Canlı YZ Risk Göstergeleri + Harita heatmap
+    let cityRiskData = null;
+    let cityHeatmapLayer = null;
 
     function getRiskLevelClass(score) {
         if (score >= 70) return 'risk-high';
@@ -298,106 +456,182 @@ document.addEventListener('DOMContentLoaded', () => {
         cityHeatmapLayer = layer;
     }
 
-    let m5MarkerLayer = null;
-    function addM5MarkersToMap(m5Cities) {
-        if (!mymap || !cityRiskData || !m5Cities || m5Cities.length === 0) return;
-        if (m5MarkerLayer) { mymap.removeLayer(m5MarkerLayer); m5MarkerLayer = null; }
-        const byCity = {};
-        cityRiskData.forEach(c => { byCity[c.city] = c; });
-        m5MarkerLayer = L.layerGroup();
-        m5Cities.forEach(cityName => {
-            const c = byCity[cityName];
-            if (c && c.lat != null && c.lon != null) {
-                L.circleMarker([c.lat, c.lon], { radius: 14, color: '#e74c3c', fillColor: '#e74c3c', fillOpacity: 0.8, weight: 3 })
-                    .bindPopup(`<b>🚨 M≥5 Risk</b><br>${cityName}`).addTo(m5MarkerLayer);
-            }
-        });
-        m5MarkerLayer.addTo(mymap);
-    }
-
     function fetchCityRiskAndHeatmap() {
-        fetch(`${RENDER_API_BASE_URL}/api/city-damage-analysis`, { method: 'GET', headers: { 'Content-Type': 'application/json' }, mode: 'cors' })
+        fetch(`${RENDER_API_BASE_URL}/api/city-damage-analysis`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors'
+        })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
             if (data && data.city_risks) {
                 cityRiskData = data.city_risks;
                 updateRiskMeter(cityRiskData);
                 addCityHeatmapOverlay(cityRiskData);
-                renderCityList(document.getElementById('citySearch')?.value || '');
-                fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, { method: 'GET', mode: 'cors' })
-                    .then(r2 => r2.ok ? r2.json() : null)
-                    .then(m5 => {
-                        if (m5 && m5.active_warnings) addM5MarkersToMap(Object.keys(m5.active_warnings));
-                    }).catch(() => {});
             }
         })
-        .catch(() => {});
-    }
-
-    function renderCityList(filter = '') {
-        if (!cityListEl || !cityRiskData) return;
-        const q = (filter || '').toLowerCase().trim();
-        let list = cityRiskData;
-        if (q) list = list.filter(c => (c.city || '').toLowerCase().includes(q));
-        if (list.length === 0) {
-            cityListEl.innerHTML = '<p class="loading">Aranan kriterde il bulunamadı.</p>';
-            return;
-        }
-        cityListEl.innerHTML = list.map(c => {
-            const s = c.risk_score ?? c.total_risk_score ?? 0;
-            const cls = s >= 50 ? 'risk-high' : s >= 30 ? 'risk-mid' : 'risk-low';
-            return `<div class="city-item ${cls}"><span>${c.city}</span><span>${(c.risk_level || getRiskLabel(s))} (${s.toFixed(0)})</span></div>`;
-        }).join('');
+        .catch(error => {
+            logApiError('fetchCityRiskAndHeatmap', `${RENDER_API_BASE_URL}/api/city-damage-analysis`, error);
+        });
     }
 
     function fetchData() {
         fetchRiskData();
+        fetchEarthquakeData();
         fetchCityRiskAndHeatmap();
-        fetchM5AndAnomaly();
-        fetchMetrics();
+        loadDashboard();
     }
 
-    function fetchM5AndAnomaly() {
-        fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, { method: 'GET', mode: 'cors' })
-            .then(r => r.ok ? r.json() : null)
+    // Dashboard: ML, M≥5, Şehir listesi
+    function loadDashboard() {
+        const base = typeof RENDER_API_BASE_URL !== 'undefined' ? RENDER_API_BASE_URL : (window.location.hostname.includes('github.io') ? 'https://depremanaliz.onrender.com' : window.location.origin);
+        loadMLMetrics(base);
+        loadM5Risk(base);
+        loadCityRisk(base);
+        updatePredictionHistoryDisplay();
+    }
+
+    function loadMLMetrics(base) {
+        const el = document.getElementById('mlMetricsContent');
+        if (!el) return;
+        fetch(`${base}/api/ml-metrics`, { method: 'GET', mode: 'cors' })
+            .then(r => r.json())
             .then(data => {
-                if (m5ListEl) {
-                    if (!data || data.status === 'error') m5ListEl.innerHTML = '<p class="loading">Yüklenemedi.</p>';
-                    else {
-                        const active = data.active_warnings || {};
-                        const arr = Object.entries(active);
-                        if (arr.length === 0) m5ListEl.innerHTML = '<p style="color:#2ecc71;">✅ M≥5 risk tespit edilmedi.</p>';
-                        else m5ListEl.innerHTML = arr.map(([city, w]) =>
-                            `<div class="m5-item"><strong>${city}</strong> - ${w.alert_level} (M${w.predicted_magnitude || '?'}) - ${w.message}</div>`
-                        ).join('');
+                if (data.status === 'success' && data.metrics) {
+                    const m = data.metrics;
+                    el.innerHTML = `
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                            <div><strong>Model:</strong> ${data.version || 'N/A'}</div>
+                            <div><strong>Eğitim:</strong> ${data.trained_at ? new Date(data.trained_at).toLocaleString('tr-TR') : 'N/A'}</div>
+                            <div><strong>Accuracy:</strong> ${(m.accuracy * 100 || 0).toFixed(2)}%</div>
+                            <div><strong>F1 Score:</strong> ${(m.f1_score * 100 || 0).toFixed(2)}%</div>
+                            <div><strong>MSE:</strong> ${(m.mse || 0).toFixed(4)}</div>
+                            <div><strong>Eğitim Örnek:</strong> ${(m.samples_train || 0).toLocaleString()}</div>
+                            <div><strong>Test Örnek:</strong> ${(m.samples_test || 0).toLocaleString()}</div>
+                        </div>
+                    `;
+                } else {
+                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Model henüz eğitilmemiş. "Modelleri Eğit" butonunu kullanın.</p>';
+                }
+            })
+            .catch(error => {
+                logApiError('loadMLMetrics', `${base}/api/ml-metrics`, error);
+                el.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. (${error.message})</p>`;
+            });
+    }
+
+    function loadM5Risk(base) {
+        const el = document.getElementById('m5RiskContent');
+        if (!el) return;
+        fetch(`${base}/api/turkey-early-warning`, { method: 'GET', mode: 'cors' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'error') {
+                    el.innerHTML = `<p style="color: #FF1744;">${data.message || 'Hata'}</p>`;
+                    return;
+                }
+                const active = data.active_warnings || {};
+                const count = data.cities_with_warnings || 0;
+                if (count === 0) {
+                    el.innerHTML = '<p style="color: #2ecc71; font-weight: 600;">✅ Şu anda M ≥ 5.0 deprem riski tespit edilmedi.</p>';
+                    return;
+                }
+                let html = `<p style="margin-bottom: 15px;"><strong>${count}</strong> ilde uyarı var:</p>`;
+                Object.entries(active).forEach(([city, w]) => {
+                    const c = w.alert_level === 'KRİTİK' ? '#e74c3c' : w.alert_level === 'YÜKSEK' ? '#e67e22' : '#f39c12';
+                    html += `<div class="m5-warning-item"><strong>${city}</strong> - ${w.alert_level} (M${w.predicted_magnitude || '?'}) - ${w.message}</div>`;
+                });
+                el.innerHTML = html;
+            })
+            .catch(error => {
+                logApiError('loadM5Risk', `${base}/api/turkey-early-warning`, error);
+                el.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. (${error.message})</p>`;
+            });
+    }
+
+    function loadCityRisk(base) {
+        const el = document.getElementById('cityRiskContent');
+        if (!el) return;
+        fetch(`${base}/api/city-damage-analysis`, { method: 'GET', mode: 'cors' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status !== 'success' || !data.city_risks || !data.city_risks.length) {
+                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Veri yüklenemedi veya boş.</p>';
+                    return;
+                }
+                let html = '';
+                data.city_risks.forEach(c => {
+                    const cls = c.risk_score >= 50 ? 'risk-high' : c.risk_score >= 30 ? 'risk-mid' : 'risk-low';
+                    html += `<div class="city-risk-item ${cls}"><span>${c.city}</span><span><strong>${c.risk_score.toFixed(1)}</strong> - ${c.risk_level}</span></div>`;
+                });
+                el.innerHTML = html;
+            })
+            .catch(error => {
+                logApiError('loadCityRisk', `${base}/api/city-damage-analysis`, error);
+                el.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. (${error.message})</p>`;
+            });
+    }
+
+    function updatePredictionHistoryDisplay() {
+        const el = document.getElementById('predictionHistoryContent');
+        if (!el) return;
+        if (!predictionHistory.length) {
+            el.innerHTML = '<p class="empty-text">Henüz tahmin yapılmadı. "Risk Tahmini" butonunu kullanın.</p>';
+            return;
+        }
+        el.innerHTML = predictionHistory.slice(-10).reverse().map(p => `
+            <div class="prediction-item">
+                <strong>${p.city || 'Konum'}</strong> - Skor: ${p.score}/10 (${p.level}) - ${p.time}
+            </div>
+        `).join('');
+    }
+
+    function addToPredictionHistory(data) {
+        const city = data.nearest_city || 'Bilinmeyen';
+        predictionHistory.push({
+            city,
+            score: data.risk_score,
+            level: data.risk_level || 'Bilinmiyor',
+            time: new Date().toLocaleString('tr-TR')
+        });
+        updatePredictionHistoryDisplay();
+    }
+
+    // Modelleri Eğit butonu
+    const trainModelsBtn = document.getElementById('trainModelsBtn');
+    if (trainModelsBtn) {
+        trainModelsBtn.addEventListener('click', () => {
+            trainModelsBtn.disabled = true;
+            trainModelsBtn.textContent = '⏳ Eğitiliyor...';
+            fetch(`${RENDER_API_BASE_URL}/api/train-models`, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' } })
+                .then(r => r.json())
+                .then(data => {
+                    trainModelsBtn.disabled = false;
+                    trainModelsBtn.textContent = '🔄 Modelleri Eğit';
+                    if (data.status === 'success') {
+                        loadMLMetrics(RENDER_API_BASE_URL);
+                        openModal('🤖 Model Eğitimi', `<div style="padding: 20px; text-align: center;"><p style="color: #2ecc71;">✅ ${data.message}</p><p>Versiyon: ${data.model_version || 'N/A'}</p></div>`);
+                    } else {
+                        openModal('🤖 Model Eğitimi', `<div style="padding: 20px; color: #FF1744;"><p>${data.message || data.error || 'Hata'}</p></div>`);
                     }
-                }
-            })
-            .catch(() => { if (m5ListEl) m5ListEl.innerHTML = '<p class="loading">Bağlantı hatası.</p>'; });
-
-        fetch(`${RENDER_API_BASE_URL}/api/istanbul-early-warning`, { method: 'GET', mode: 'cors' })
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-                if (anomalyEl) {
-                    if (!data) anomalyEl.innerHTML = '<p class="loading">Analiz yapılamadı.</p>';
-                    else anomalyEl.innerHTML = `<p>Anomali: <strong>${data.anomaly_detected ? '✅ Tespit edildi' : '❌ Yok'}</strong></p><p>Skor: ${data.alert_score || 0}/1.0 · ${data.message || ''}</p>`;
-                }
-            })
-            .catch(() => { if (anomalyEl) anomalyEl.innerHTML = '<p class="loading">Bağlantı hatası.</p>'; });
+                })
+                .catch(error => {
+                    logApiError('trainModels', `${RENDER_API_BASE_URL}/api/train-models`, error);
+                    trainModelsBtn.disabled = false;
+                    trainModelsBtn.textContent = '🔄 Modelleri Eğit';
+                    openModal('🤖 Model Eğitimi', `<div style="padding: 20px; color: #FF1744;"><p>Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p></div>`);
+                });
+        });
     }
 
-    function fetchMetrics() {
-        if (!metricsEl) return;
-        metricsEl.innerHTML = `
-            <div class="metric-row"><span>Deprem sayısı (24h)</span><span>Risk artışı</span></div>
-            <div class="metric-row"><span>Maksimum büyüklük</span><span>Yüksek M = yüksek risk</span></div>
-            <div class="metric-row"><span>En yakın deprem mesafesi</span><span>Yakın = risk artar</span></div>
-            <div class="metric-row"><span>Fay hattı mesafesi</span><span>Yakın fay = risk artar</span></div>
-            <div class="metric-row"><span>Aktivite yoğunluğu</span><span>Yoğunluk = risk artar</span></div>
-        `;
-    }
-
-    document.getElementById('citySearch')?.addEventListener('input', (e) => renderCityList(e.target.value));
+    // Şehir listesi yenile butonu
+    const refreshCityRiskBtn = document.getElementById('refreshCityRiskBtn');
+    if (refreshCityRiskBtn) {
+        refreshCityRiskBtn.addEventListener('click', () => {
+            loadCityRisk(RENDER_API_BASE_URL);
+            fetchCityRiskAndHeatmap();
+        });
+    } 
 
     // Konum Alma Fonksiyonu
     getLocationButton.addEventListener('click', () => {
@@ -485,8 +719,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         })
         .catch(error => {
-            console.error('Ayarlar kaydedilirken hata:', error);
-            locationStatus.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+            logApiError('set-alert', `${RENDER_API_BASE_URL}/api/set-alert`, error);
+            locationStatus.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p>`;
         });
     });
 
@@ -496,7 +730,7 @@ document.addEventListener('DOMContentLoaded', () => {
             getOptInLinkButton.disabled = true;
             getOptInLinkButton.textContent = '⏳ Link Yükleniyor...';
             
-            fetch(`${RENDER_API_BASE_URL}/api/get-opt-in-link`, {
+            fetch(`${API_URL}/api/get-opt-in-link`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' },
                 mode: 'cors'
@@ -512,8 +746,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 getOptInLinkButton.textContent = '🔗 Session Açma Linkini Al';
                 
                 if (data.success && data.opt_in_link) {
-                    if (optInLink) { optInLink.href = data.opt_in_link; optInLink.textContent = data.opt_in_link; }
-                    if (optInLinkDisplay) optInLinkDisplay.style.display = 'block';
+                    optInLink.href = data.opt_in_link;
+                    optInLink.textContent = data.opt_in_link;
+                    optInLinkDisplay.style.display = 'block';
                     
                     // Modal ile detaylı talimatlar göster
                     const instructions = data.instructions ? data.instructions.map(step => `<li style="margin: 8px 0; text-align: left;">${step}</li>`).join('') : '';
@@ -558,7 +793,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             })
             .catch(error => {
-                console.error('Opt-in link hatası:', error);
+                logApiError('get-opt-in-link', `${API_URL}/api/get-opt-in-link`, error);
                 getOptInLinkButton.disabled = false;
                 getOptInLinkButton.textContent = '🔗 Session Açma Linkini Al';
                 openModal('📱 Opt-In Link Hatası', `
@@ -674,6 +909,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             }
             
+            addToPredictionHistory(data);
             openModal('🔮 AI Risk Tahmini', `
                 <div style="background: linear-gradient(135deg, ${riskColor} 0%, ${riskColor}dd 100%); border-radius: 20px; padding: 30px; text-align: center; margin-bottom: 20px;">
                     <h3 style="margin: 0 0 15px 0; font-size: 2rem; font-weight: 800;">Risk Seviyesi: ${data.risk_level || 'Bilinmiyor'}</h3>
@@ -686,11 +922,11 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch(error => {
             clearTimeout(timeoutId);
-            console.error('Risk tahmini hatası:', error);
+            logApiError('predict-risk', `${RENDER_API_BASE_URL}/api/predict-risk`, error);
             const isTimeout = error.name === 'AbortError';
             const msg = isTimeout
-                ? '⏱️ İstek zaman aşımına uğradı. Önce haritanın yüklenmesini bekleyin, sonra tekrar deneyin.'
-                : '⚠️ Sunucuya bağlanılamadı. Önce haritanın yüklenmesini bekleyin, sonra tekrar deneyin. Sunucu uyku modundaysa 15-20 saniye sürebilir.';
+                ? '⏱️ İstek zaman aşımına uğradı (90 sn). Sunucu uyku modundan uyanıyor olabilir. Lütfen 30 saniye bekleyip tekrar deneyin.'
+                : `⚠️ Sunucuya bağlanılamadı. (${error.message}) F12 konsolunda [API HATA] loglarını kontrol edin.`;
             openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>${msg}</p></div>`);
         });
     });
@@ -783,8 +1019,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 openModal('🏙️ İl Bazında Risk Analizi', html);
             })
             .catch(error => {
-                console.error('İl bazında risk analizi hatası:', error);
-                openModal('🏙️ İl Bazında Risk Analizi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p></div>`);
+                logApiError('city-damage-analysis', `${RENDER_API_BASE_URL}/api/city-damage-analysis`, error);
+                openModal('🏙️ İl Bazında Risk Analizi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p></div>`);
             });
     });
     
@@ -875,8 +1111,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', html);
                 })
                 .catch(error => {
-                    console.error('Türkiye erken uyarı hatası:', error);
-                    openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p></div>`);
+                    logApiError('turkey-early-warning', `${RENDER_API_BASE_URL}/api/turkey-early-warning`, error);
+                    openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p></div>`);
                 });
         });
     }
@@ -892,13 +1128,10 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             mode: 'cors'
         })
-            .then(response => {
-                if (!response.ok) throw new Error(`Sunucu: ${response.status}`);
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                if (data.error || data.alert_level === 'HATA') {
-                    openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.message || data.error || 'Bilinmeyen hata'}</p></div>`);
+                if (data.error) {
+                    openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
                     return;
                 }
                 
@@ -949,8 +1182,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 `);
             })
             .catch(error => {
-                console.error('İstanbul erken uyarı hatası:', error);
-                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı.</p><p style="font-size: 0.9em; margin-top: 10px; opacity: 0.9;">Önce haritanın yüklenmesini bekleyin, sonra tekrar deneyin. Sunucu uyku modundaysa 15-20 saniye sürebilir.</p></div>`);
+                logApiError('istanbul-early-warning', `${RENDER_API_BASE_URL}/api/istanbul-early-warning`, error);
+                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p></div>`);
             });
     });
 
@@ -1025,8 +1258,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     saveIstanbulAlertButton.textContent = '🔔 İstanbul Erken Uyarı Bildirimlerini Aktifleştir';
                 })
                 .catch(error => {
-                    console.error('İstanbul bildirim hatası:', error);
-                    istanbulAlertResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip tekrar deneyin.</p>`;
+                    logApiError('istanbul-alert', `${RENDER_API_BASE_URL}/api/istanbul-alert`, error);
+                    istanbulAlertResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p>`;
                     saveIstanbulAlertButton.disabled = false;
                     saveIstanbulAlertButton.textContent = '🔔 İstanbul Erken Uyarı Bildirimlerini Aktifleştir';
                 });
@@ -1046,8 +1279,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatbotInput = document.getElementById('chatbotInput');
     const chatbotSend = document.getElementById('chatbotSend');
 
-    if (chatbotToggle && chatbotWindow) chatbotToggle.addEventListener('click', () => chatbotWindow.classList.toggle('active'));
-    if (closeChatbot && chatbotWindow) closeChatbot.addEventListener('click', () => chatbotWindow.classList.remove('active'));
+    chatbotToggle.addEventListener('click', () => {
+        chatbotWindow.classList.toggle('active');
+    });
+
+    closeChatbot.addEventListener('click', () => {
+        chatbotWindow.classList.remove('active');
+    });
 
     function addMessage(text, isUser = false) {
         const messageDiv = document.createElement('div');
@@ -1086,8 +1324,9 @@ document.addEventListener('DOMContentLoaded', () => {
             addMessage(data.response || 'Üzgünüm, bir hata oluştu.');
         })
         .catch(error => {
+            logApiError('chatbot', `${API_URL}/api/chatbot`, error);
             loadingDiv.remove();
-            addMessage('Bağlantı hatası. Lütfen tekrar deneyin.');
+            addMessage(`Bağlantı hatası: ${error.message}. Lütfen tekrar deneyin.`);
             console.error('Chatbot hatası:', error);
         });
     }

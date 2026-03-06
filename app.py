@@ -1,7 +1,8 @@
 # app.py
 # Bu dosya, YZ modelini çalıştıracak olan Python arka ucudur (Backend).
 
-import os # Ortam değişkenlerini okumak için eklendi
+import os  # Ortam değişkenlerini okumak için eklendi
+import logging
 import time
 import requests
 import numpy as np
@@ -30,6 +31,10 @@ from textblob import TextBlob
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
 
+# API istek loglama (sunucuya bağlanamama hatalarını debug için)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
+
 # CORS - Render için kesin çözüm
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
@@ -43,6 +48,9 @@ def handle_cors_preflight():
         r.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
         r.headers['Access-Control-Max-Age'] = '86400'
         return r
+    # API isteklerini logla (bağlantı sorunlarını debug için)
+    if request.path.startswith('/api/'):
+        logger.info(f"[API] {request.method} {request.path} | Origin: {request.origin or request.referrer or '-'}")
 
 @app.after_request
 def add_cors_headers(response):
@@ -50,7 +58,17 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
     response.headers["Access-Control-Max-Age"] = "86400"
-    return response 
+    return response
+
+
+@app.errorhandler(Exception)
+def log_exception(error):
+    """API hatalarını logla - sunucuya bağlanamama debug için."""
+    logger.exception(f"[API HATA] {request.method} {request.path}: {error}")
+    if request.path.startswith('/api/'):
+        return jsonify({'status': 'error', 'message': str(error)}), 500
+    raise  # Diğer route'lar için orijinal hatayı yay
+
 
 # --- FRONTEND (CORS'suz mimari: aynı domain) ---
 @app.route('/')
@@ -2526,14 +2544,81 @@ def chatbot():
         if len(context['history']) > 10:
             context['history'] = context['history'][-10:]
         
-        # Gelişmiş rule-based AI - Öncelikli pattern matching (daha spesifik önce)
-        # ÖNEMLİ: Daha spesifik pattern'ler önce kontrol edilmeli
-        
-        # Yanıt değişkenini başlat
+        # Yanıt değişkeni
         response_text = ''
         
-        # Öncelik 1: Ruh hali ve duygusal destek (en önemli - önce kontrol edilmeli)
-        if any(word in message_lower for word in ['korku', 'korkuyorum', 'korkuyor', 'endişe', 'endişeliyim', 'kaygı', 'kaygılı', 'stres', 'stresli', 'panik', 'panikliyim', 'korkarım', 'korktum', 'korktuk']):
+        # === VERİ ODAKLI DEPREM ASİSTANI - Intent tabanlı gerçek veri ===
+        
+        # Intent 1: İl + risk ("İstanbul risk nedir", "Ankara'da risk var mı")
+        city_for_risk = None
+        for city_name in TURKEY_CITIES.keys():
+            if city_name.lower() in message_lower and any(w in message_lower for w in ['risk', 'tehlike', 'güvenli', 'durum', 'analiz', 'var mı', 'nedir']):
+                city_for_risk = city_name
+                break
+        if city_for_risk:
+            try:
+                eqs = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=1, timeout=15)
+                c = TURKEY_CITIES[city_for_risk]
+                pred = predict_earthquake_risk(eqs or [], c['lat'], c['lon'])
+                factors = pred.get('factors', {})
+                reason = pred.get('reason', '')
+                score = pred.get('risk_score', 0)
+                level = pred.get('risk_level', 'Bilinmiyor')
+                response_text = f'📍 {city_for_risk.upper()} ANALİZİ\n\n'
+                response_text += f'Son 24 saat deprem sayısı: {factors.get("recent_count", 0)}\n'
+                response_text += f'En büyük deprem: M{factors.get("max_magnitude", 0):.1f}\n'
+                response_text += f'Fay hattı mesafesi: {factors.get("nearest_fault_km", "?")} km\n\n'
+                response_text += f'📊 Risk Seviyesi: {level}\n'
+                if reason:
+                    response_text += f'\nSebep:\n{reason}'
+            except Exception as e:
+                response_text = f'⚠️ {city_for_risk} analizi yapılırken hata: {str(e)}'
+        
+        # Intent 2: Son deprem ("son deprem", "en son deprem neydi")
+        elif any(phrase in message_lower for phrase in ['son deprem', 'en son deprem', 'son deprem neydi', 'en son deprem ne', 'son deprem ne']):
+            try:
+                eqs = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=1, timeout=15)
+                if eqs and len(eqs) > 0:
+                    eq = eqs[0]
+                    loc = eq.get('location', 'Bilinmiyor')
+                    mag = eq.get('mag', 0)
+                    depth = eq.get('depth', 'N/A')
+                    ts = eq.get('created_at') or eq.get('timestamp') or 0
+                    saat = datetime.fromtimestamp(ts).strftime('%d.%m.%Y %H:%M') if ts else 'Bilinmiyor'
+                    response_text = f'📋 SON DEPREM\n\n'
+                    response_text += f'Yer: {loc}\n'
+                    response_text += f'Büyüklük: M{mag:.1f}\n'
+                    response_text += f'Derinlik: {depth} km\n'
+                    response_text += f'Saat: {saat}\n\n'
+                    response_text += 'Artçı riski: Orta (M≥4 sonrası artçılar takip edilmeli)'
+                else:
+                    response_text = 'Son 24 saatte kayıtlı deprem bulunamadı.'
+            except Exception as e:
+                response_text = f'⚠️ Veri alınamadı: {str(e)}'
+        
+        # Intent 3: Konum tabanlı risk (frontend lat/lon gönderirse)
+        elif data.get('lat') is not None and data.get('lon') is not None:
+            try:
+                lat = float(data['lat'])
+                lon = float(data['lon'])
+                eqs = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=1, timeout=15)
+                pred = predict_earthquake_risk(eqs or [], lat, lon)
+                nearest, _ = find_nearest_city(lat, lon)
+                nearest = nearest or 'Bilinmiyor'
+                factors = pred.get('factors', {})
+                response_text = f'📍 Konumunuz İçin Analiz ({nearest})\n\n'
+                response_text += f'Son 24 saat deprem sayısı: {factors.get("recent_count", 0)}\n'
+                response_text += f'En büyük deprem: M{factors.get("max_magnitude", 0):.1f}\n'
+                response_text += f'En yakın mesafe: {factors.get("min_distance", "?")} km\n'
+                response_text += f'Fay hattı mesafesi: {factors.get("nearest_fault_km", "?")} km\n\n'
+                response_text += f'📊 Risk Seviyesi: {pred.get("risk_level", "Bilinmiyor")}\n'
+                if pred.get('reason'):
+                    response_text += f'\nSebep:\n{pred["reason"]}'
+            except Exception as e:
+                response_text = f'⚠️ Konum analizi hatası: {str(e)}'
+        
+        # Öncelik 1: Ruh hali ve duygusal destek
+        if not response_text and any(word in message_lower for word in ['korku', 'korkuyorum', 'korkuyor', 'endişe', 'endişeliyim', 'kaygı', 'kaygılı', 'stres', 'stresli', 'panik', 'panikliyim', 'korkarım', 'korktum', 'korktuk']):
             response_text = '💚 KORKUNUZU ANLIYORUM - DESTEK REHBERİ:\n\n'
             response_text += '😔 Deprem konusunda korku ve endişe duymanız çok normal. Bu duyguları yaşamak insan doğasının bir parçasıdır.\n\n'
             response_text += '🛡️ KORKUNUZU AZALTMAK İÇİN:\n'
@@ -2555,7 +2640,7 @@ def chatbot():
             response_text += 'Hazırlık yapmak sizi güçlendirir ve korkunuzu azaltır. Size nasıl yardımcı olabilirim?'
         
         # Öncelik 2: Deprem anında ne yapmalı (çok spesifik)
-        elif any(phrase in message_lower for phrase in ['deprem anında', 'deprem sırasında', 'deprem olduğunda', 'deprem olursa', 'deprem sırası', 'deprem anı', 'deprem sırası ne yapmalı', 'deprem anında ne yapmalı']):
+        elif not response_text and any(phrase in message_lower for phrase in ['deprem anında', 'deprem sırasında', 'deprem olduğunda', 'deprem olursa', 'deprem sırası', 'deprem anı', 'deprem sırası ne yapmalı', 'deprem anında ne yapmalı']):
             response_text = '🚨 DEPREM ANINDA YAPILACAKLAR (ÇÖK-KAPAN-TUTUN):\n\n'
             response_text += '1️⃣ ÇÖK: Hemen yere çökün\n'
             response_text += '   • Ayakta durmayın\n'
@@ -2576,7 +2661,7 @@ def chatbot():
             response_text += '💡 Sarsıntı bitene kadar ÇÖK-KAPAN-TUTUN pozisyonunda kalın!'
         
         # Öncelik 3: Diğer spesifik sorular
-        elif any(word in message_lower for word in ['iyi hissetmemi sağla', 'iyi hisset', 'rahatlat', 'sakinleştir', 'huzur', 'güven']):
+        elif not response_text and any(word in message_lower for word in ['iyi hissetmemi sağla', 'iyi hisset', 'rahatlat', 'sakinleştir', 'huzur', 'güven']):
             response_text = '💚 SİZİ RAHATLATMAK İÇİN:\n\n'
             response_text += '😊 Öncelikle şunu bilin: Hazırlık yapmak sizi güçlendirir!\n\n'
             response_text += '✅ YAPABİLECEKLERİNİZ:\n'

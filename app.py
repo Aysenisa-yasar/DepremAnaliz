@@ -35,18 +35,29 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
-# CORS - Render için kesin çözüm
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# CORS - Render + GitHub Pages için kesin çözüm
+# Tüm origin'lere izin ver (localhost, github.io, depremanaliz.onrender.com)
+CORS(app, resources={r"/api/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization", "Accept"]}})
+
+def _add_cors_headers(response):
+    """CORS başlıklarını ekle - GitHub Pages'ten gelen istekler için zorunlu."""
+    origin = request.origin or request.headers.get('Origin')
+    # İstek cross-origin ise Origin header'ı yansıt (CORS için gerekli)
+    if origin and any(x in origin for x in ['github.io', 'localhost', '127.0.0.1', 'onrender.com', 'render.com']):
+        response.headers['Access-Control-Allow-Origin'] = origin
+    else:
+        response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
+    response.headers['Access-Control-Max-Age'] = '86400'
+    return response
 
 @app.before_request
 def handle_cors_preflight():
     """OPTIONS preflight - Tarayıcı önce OPTIONS gönderir, hemen cevapla."""
     if request.method == 'OPTIONS':
         r = make_response('', 200)
-        r.headers['Access-Control-Allow-Origin'] = '*'
-        r.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
-        r.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
-        r.headers['Access-Control-Max-Age'] = '86400'
+        r = _add_cors_headers(r)
         return r
     # API isteklerini logla (bağlantı sorunlarını debug için)
     if request.path.startswith('/api/'):
@@ -54,11 +65,7 @@ def handle_cors_preflight():
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-    response.headers["Access-Control-Max-Age"] = "86400"
-    return response
+    return _add_cors_headers(response)
 
 
 @app.errorhandler(Exception)
@@ -66,7 +73,8 @@ def log_exception(error):
     """API hatalarını logla - sunucuya bağlanamama debug için."""
     logger.exception(f"[API HATA] {request.method} {request.path}: {error}")
     if request.path.startswith('/api/'):
-        return jsonify({'status': 'error', 'message': str(error)}), 500
+        resp = make_response(jsonify({'status': 'error', 'message': str(error)}), 500)
+        return _add_cors_headers(resp)
     raise  # Diğer route'lar için orijinal hatayı yay
 
 

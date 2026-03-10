@@ -823,7 +823,7 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({
                 lat: userCoords.lat,
                 lon: userCoords.lon,
-                use_ml: true
+                use_ml: false  // Render free tier: ML modelleri OOM nedeniyle devre dışı
             }),
         })
         .then(response => {

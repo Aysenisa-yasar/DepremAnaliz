@@ -1898,7 +1898,8 @@ def predict_risk():
         if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
             return jsonify({"error": "Geçersiz koordinatlar. Enlem: -90 ile 90, Boylam: -180 ile 180 arasında olmalı."}), 400
         
-        use_ml = data.get('use_ml', True)  # ML kullanımı (varsayılan: True)
+        # Render free tier: ML modelleri (XGBoost/LightGBM) OOM/timeout nedeniyle devre dışı
+        use_ml = data.get('use_ml', False)
         
         # Deprem verilerini çek
         try:

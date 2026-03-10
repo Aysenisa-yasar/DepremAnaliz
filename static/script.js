@@ -909,11 +909,10 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(error => {
             clearTimeout(timeoutId);
             logApiError('predict-risk', `${RENDER_API_BASE_URL}/api/predict-risk`, error);
-            const isTimeout = error.name === 'AbortError';
-            const msg = isTimeout
-                ? '⏱️ İstek zaman aşımına uğradı (90 sn). Sunucu uyku modundan uyanıyor olabilir. Lütfen 30 saniye bekleyip tekrar deneyin.'
-                : `⚠️ Sunucuya bağlanılamadı. (${error.message}) F12 konsolunda [API HATA] loglarını kontrol edin.`;
-            openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>${msg}</p></div>`);
+            const retryMsg = `<p style="margin-top:15px;"><button id="retryPredictBtn" class="btn-modern btn-primary">🔄 Tekrar Dene</button></p><p style="font-size:0.85em;margin-top:10px;">45 sn sonra otomatik yeniden denenecek.</p>`;
+            openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir (30-60 sn).</p>${retryMsg}</div>`);
+            setTimeout(() => document.getElementById('retryPredictBtn')?.addEventListener('click', () => predictRiskButton.click()), 100);
+            setTimeout(() => predictRiskButton.click(), 45000);
         });
     });
     
@@ -1006,7 +1005,10 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 logApiError('city-damage-analysis', `${RENDER_API_BASE_URL}/api/city-damage-analysis`, error);
-                openModal('🏙️ İl Bazında Risk Analizi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p></div>`);
+                const retryMsg = `<p style="margin-top:15px;"><button id="retryCityBtn" class="btn-modern btn-primary">🔄 Tekrar Dene</button></p><p style="font-size:0.85em;margin-top:10px;">45 sn sonra otomatik yeniden denenecek.</p>`;
+                openModal('🏙️ İl Bazında Risk Analizi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir.</p>${retryMsg}</div>`);
+                setTimeout(() => document.getElementById('retryCityBtn')?.addEventListener('click', () => analyzeCityDamageButton.click()), 100);
+                setTimeout(() => analyzeCityDamageButton.click(), 45000);
             });
     });
     
@@ -1014,18 +1016,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const checkTurkeyWarningButton = document.getElementById('checkTurkeyWarningButton');
     const turkeyWarningResult = document.getElementById('turkeyWarningResult');
     
-    if (checkTurkeyWarningButton) {
-        checkTurkeyWarningButton.addEventListener('click', () => {
-            openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">Tüm Türkiye erken uyarı durumu kontrol ediliyor...</p></div>');
-            
-            fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                mode: 'cors'
+    function doTurkeyWarning(retryCount = 0) {
+        openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">Tüm Türkiye erken uyarı durumu kontrol ediliyor...</p><p style="font-size:0.85em;opacity:0.7;">İlk istek 30-60 sn sürebilir.</p></div>');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
+        fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
+            signal: controller.signal
+        })
+            .then(response => {
+                clearTimeout(timeoutId);
+                if (!response.ok) throw new Error(`Sunucu hatası: ${response.status}`);
+                return response.json();
             })
-                .then(response => response.json())
                 .then(data => {
                     if (data.status === 'error') {
                         openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.message || 'Bilinmeyen hata'}</p></div>`);
@@ -1098,23 +1103,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
                 .catch(error => {
                     logApiError('turkey-early-warning', `${RENDER_API_BASE_URL}/api/turkey-early-warning`, error);
-                    openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p></div>`);
+                    const retryMsg = retryCount < 2 ? `<p style="margin-top:15px;"><button id="retryTurkeyBtn" class="btn-modern btn-primary">🔄 Tekrar Dene</button></p><p style="font-size:0.85em;margin-top:10px;">45 sn sonra otomatik yeniden denenecek.</p>` : '';
+                    openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir (30-60 sn).</p>${retryMsg}</div>`);
+                    if (retryCount < 2) {
+                        setTimeout(() => document.getElementById('retryTurkeyBtn')?.addEventListener('click', () => doTurkeyWarning(retryCount + 1)), 100);
+                        setTimeout(() => doTurkeyWarning(retryCount + 1), 45000);
+                    }
                 });
-        });
+    }
+    
+    if (checkTurkeyWarningButton) {
+        checkTurkeyWarningButton.addEventListener('click', () => doTurkeyWarning(0));
     }
 
     // İstanbul Erken Uyarı Sistemi
-    checkIstanbulWarningButton.addEventListener('click', () => {
-        openModal('🏛️ İstanbul Erken Uyarı Sistemi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">İstanbul erken uyarı durumu kontrol ediliyor...</p></div>');
-        
+    function doIstanbulWarning(retryCount = 0) {
+        openModal('🏛️ İstanbul Erken Uyarı Sistemi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">İstanbul erken uyarı durumu kontrol ediliyor...</p><p style="font-size:0.85em;opacity:0.7;">İlk istek 30-60 sn sürebilir.</p></div>');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
         fetch(`${RENDER_API_BASE_URL}/api/istanbul-early-warning`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            mode: 'cors'
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
+            signal: controller.signal
         })
-            .then(response => response.json())
+            .then(response => {
+                clearTimeout(timeoutId);
+                if (!response.ok) throw new Error(`Sunucu hatası: ${response.status}`);
+                return response.json();
+            })
             .then(data => {
                 if (data.error) {
                     openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
@@ -1169,9 +1186,15 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 logApiError('istanbul-early-warning', `${RENDER_API_BASE_URL}/api/istanbul-early-warning`, error);
-                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p></div>`);
+                const retryMsg = retryCount < 2 ? `<p style="margin-top:15px;"><button id="retryIstanbulBtn" class="btn-modern btn-primary">🔄 Tekrar Dene</button></p><p style="font-size:0.85em;margin-top:10px;">45 sn sonra otomatik yeniden denenecek.</p>` : '';
+                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir (30-60 sn).</p>${retryMsg}</div>`);
+                if (retryCount < 2) {
+                    setTimeout(() => document.getElementById('retryIstanbulBtn')?.addEventListener('click', () => doIstanbulWarning(retryCount + 1)), 100);
+                    setTimeout(() => doIstanbulWarning(retryCount + 1), 45000);
+                }
             });
-    });
+    }
+    checkIstanbulWarningButton.addEventListener('click', () => doIstanbulWarning(0));
 
     // İstanbul WhatsApp Bildirim Formu
     const istanbulNumberInput = document.getElementById('istanbulNumberInput');

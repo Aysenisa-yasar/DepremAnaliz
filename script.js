@@ -118,41 +118,24 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // API URL'ini dinamik olarak kullan (localhost veya production)
     const RENDER_API_BASE_URL = API_URL;
+    const isCrossOrigin = RENDER_API_BASE_URL.includes('render.com') || RENDER_API_BASE_URL.includes('onrender.com');
     
-    // Render.com'u uyanık tutmak için düzenli ping (her 10 dakikada bir)
-    // Free plan'da 15 dakika inaktiflikten sonra uyku moduna geçer
-    if (RENDER_API_BASE_URL.includes('render.com') || RENDER_API_BASE_URL.includes('onrender.com')) {
+    // Render.com uyanık tutma + GitHub Pages CORS için sunucuyu önceden uyandır
+    if (isCrossOrigin) {
         function pingServer() {
-            // Health check endpoint'i kullan (en hafif endpoint)
             fetch(`${RENDER_API_BASE_URL}/api/health`, {
                 method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 mode: 'cors'
             })
-            .then(response => {
-                if (response.ok) {
-                    console.log('[PING] ✅ Render.com uyanık tutuldu');
-                } else {
-                    console.log('[PING] ⚠️ Sunucu yanıt vermedi');
-                }
-            })
-            .catch(error => {
-                // İlk ping başarısız olabilir (sunucu uyku modunda)
-                // Bu normal, sonraki ping'ler başarılı olacak
-                console.log('[PING] ⏳ Sunucu uyanıyor...');
-            });
+            .then(r => { if (r.ok) console.log('[PING] ✅ Sunucu hazır'); })
+            .catch(() => console.log('[PING] ⏳ Sunucu uyanıyor...'));
         }
-        
-        // İlk ping'i hemen gönder
-        setTimeout(pingServer, 2000); // 2 saniye sonra
-        
-        // Sonra her 10 dakikada bir ping gönder (600000 ms = 10 dakika)
-        // 15 dakika uyku moduna geçmeden önce 10 dakikada bir ping yeterli
-        setInterval(pingServer, 600000); // 10 dakika = 600000 ms
-        
-        console.log('[PING] Render.com uyanık tutma sistemi aktif (her 10 dakikada bir ping)');
+        pingServer();
+        setTimeout(pingServer, 5000);
+        setTimeout(pingServer, 15000);
+        setInterval(pingServer, 300000);
+        console.log('[PING] Sunucu uyanık tutma aktif');
     }
     const apiURL = `${RENDER_API_BASE_URL}/api/risk`; 
     
@@ -254,7 +237,8 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 console.error('Veri çekme hatası:', error);
-                listContainer.innerHTML = `<p style="color: #FF1744;">Hata: YZ sunucusuna bağlanılamadı. (${error.message})</p>`;
+                listContainer.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir.</p><p style="font-size:0.9em;color:#FFA726;">⏳ 45 saniye sonra otomatik yeniden denenecek...</p>`;
+                if (isCrossOrigin) setTimeout(() => { fetchRiskData(); fetchEarthquakeData(); fetchCityRiskAndHeatmap(); }, 45000);
             });
     }
 
@@ -363,7 +347,8 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 console.error('Veri çekme hatası:', error);
-                listContainer.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. Render.com backend'i uyku modunda olabilir. Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>`;
+                listContainer.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir.</p><p style="font-size:0.9em;color:#FFA726;">⏳ 45 saniye sonra otomatik yeniden denenecek...</p>`;
+                if (isCrossOrigin) setTimeout(() => { fetchRiskData(); fetchEarthquakeData(); fetchCityRiskAndHeatmap(); }, 45000);
             });
     }
 

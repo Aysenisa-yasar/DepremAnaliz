@@ -136,40 +136,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const RENDER_API_BASE_URL = API_URL;
     console.log('[API] Base URL:', RENDER_API_BASE_URL, '| Origin:', window.location.origin);
     
-    // Render.com'u uyanık tutmak için düzenli ping (her 10 dakikada bir)
-    // Free plan'da 15 dakika inaktiflikten sonra uyku moduna geçer
-    if (RENDER_API_BASE_URL.includes('render.com') || RENDER_API_BASE_URL.includes('onrender.com')) {
+    // Render.com uyanık tutma + GitHub Pages CORS için sunucuyu önceden uyandır
+    const isCrossOrigin = RENDER_API_BASE_URL.includes('render.com') || RENDER_API_BASE_URL.includes('onrender.com');
+    if (isCrossOrigin) {
         function pingServer() {
-            // Health check endpoint'i kullan (en hafif endpoint)
             fetch(`${RENDER_API_BASE_URL}/api/health`, {
                 method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 mode: 'cors'
             })
-            .then(response => {
-                if (response.ok) {
-                    console.log('[PING] ✅ Render.com uyanık tutuldu');
-                } else {
-                    console.log('[PING] ⚠️ Sunucu yanıt vermedi');
-                }
-            })
-            .catch(error => {
-                // İlk ping başarısız olabilir (sunucu uyku modunda)
-                // Bu normal, sonraki ping'ler başarılı olacak
-                console.log('[PING] ⏳ Sunucu uyanıyor...');
-            });
+            .then(r => { if (r.ok) console.log('[PING] ✅ Sunucu hazır'); })
+            .catch(() => console.log('[PING] ⏳ Sunucu uyanıyor...'));
         }
-        
-        // İlk ping'i hemen gönder
-        setTimeout(pingServer, 2000); // 2 saniye sonra
-        
-        // Sonra her 10 dakikada bir ping gönder (600000 ms = 10 dakika)
-        // 15 dakika uyku moduna geçmeden önce 10 dakikada bir ping yeterli
-        setInterval(pingServer, 600000); // 10 dakika = 600000 ms
-        
-        console.log('[PING] Render.com uyanık tutma sistemi aktif (her 10 dakikada bir ping)');
+        // GitHub Pages: Sayfa açılır açılmaz sunucuyu uyandır (cold start önleme)
+        pingServer();
+        setTimeout(pingServer, 5000);
+        setTimeout(pingServer, 15000);
+        setInterval(pingServer, 300000); // 5 dakikada bir
+        console.log('[PING] Sunucu uyanık tutma aktif');
     }
     const apiURL = `${RENDER_API_BASE_URL}/api/risk`; 
     
@@ -271,7 +255,8 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 logApiError('fetchRiskData', apiURL, error);
-                listContainer.innerHTML = `<p style="color: #FF1744;">Hata: YZ sunucusuna bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 ile konsolu açıp [API HATA] loglarını kontrol edin.</p>`;
+                listContainer.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir.</p><p style="font-size:0.9em;color:#FFA726;">⏳ 45 saniye sonra otomatik yeniden denenecek...</p>`;
+                if (isCrossOrigin) setTimeout(() => { fetchRiskData(); fetchEarthquakeData(); fetchCityRiskAndHeatmap(); }, 45000);
             });
     }
 
@@ -380,7 +365,8 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 logApiError('fetchEarthquakeData', apiURL, error);
-                listContainer.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p>`;
+                listContainer.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir.</p><p style="font-size:0.9em;color:#FFA726;">⏳ 45 saniye sonra otomatik yeniden denenecek...</p>`;
+                if (isCrossOrigin) setTimeout(() => { fetchRiskData(); fetchEarthquakeData(); fetchCityRiskAndHeatmap(); }, 45000);
             });
     }
 

@@ -40,13 +40,8 @@ logger = logging.getLogger(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization", "Accept"]}})
 
 def _add_cors_headers(response):
-    """CORS başlıklarını ekle - GitHub Pages'ten gelen istekler için zorunlu."""
-    origin = request.origin or request.headers.get('Origin')
-    # İstek cross-origin ise Origin header'ı yansıt (CORS için gerekli)
-    if origin and any(x in origin for x in ['github.io', 'localhost', '127.0.0.1', 'onrender.com', 'render.com']):
-        response.headers['Access-Control-Allow-Origin'] = origin
-    else:
-        response.headers['Access-Control-Allow-Origin'] = '*'
+    """CORS başlıklarını ekle - GitHub Pages cross-origin için zorunlu."""
+    response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
     response.headers['Access-Control-Max-Age'] = '86400'

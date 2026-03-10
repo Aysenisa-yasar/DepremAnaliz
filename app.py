@@ -225,6 +225,8 @@ chatbot_contexts = {}  # {session_id: {'history': [], 'user_mood': None, 'topics
 
 # Model dosyaları
 RISK_PREDICTION_MODEL_FILE = f'{MODEL_DIR}/risk_prediction_model.pkl'
+# ML model cache - her istekte yükleme yerine bir kez yükle (OOM/timeout önleme)
+_ml_models_cache = {'models': None, 'weights': None}
 ISTANBUL_EARLY_WARNING_MODEL_FILE = f'{MODEL_DIR}/istanbul_early_warning_model.pkl'
 ANOMALY_DETECTION_MODEL_FILE = f'{MODEL_DIR}/anomaly_detection_model.pkl'
 
@@ -1016,31 +1018,23 @@ def train_risk_prediction_model(earthquake_history):
 def predict_risk_with_ml(earthquakes, target_lat, target_lon):
     """
     Gelişmiş ML modeli ile risk tahmini yapar.
+    Modeller cache'den yüklenir - her istekte disk okuma yok (OOM/timeout önleme).
     """
-    # Özellik çıkarımı (artık her zaman özellik döndürür, None döndürmez)
+    global _ml_models_cache
+    # Özellik çıkarımı
     features = extract_features(earthquakes, target_lat, target_lon)
     
     if features is None:
-        # Bu durumda geleneksel yönteme fallback
         return predict_earthquake_risk(earthquakes, target_lat, target_lon)
     
-    # Model yükle (önce models/ klasöründeki yeni versiyonlu model, sonra ml_models)
+    # Model yükle - cache varsa kullan, yoksa bir kez yükle
     try:
-        models = None
-        weights = {'random_forest': 0.4, 'xgboost': 0.35, 'lightgbm': 0.25}
-        try:
-            from train_models import load_latest_model
-            models = load_latest_model()  # models/model_vN.pkl formatı
-        except ImportError:
-            pass
-        if models is None and os.path.exists(RISK_PREDICTION_MODEL_FILE):
-            with open(RISK_PREDICTION_MODEL_FILE, 'rb') as f:
-                model_data = pickle.load(f)
-            if isinstance(model_data, dict) and 'models' in model_data:
-                models = model_data['models']
-                weights = model_data.get('weights', weights)
-            else:
-                models = model_data
+        models = _ml_models_cache['models']
+        weights = _ml_models_cache['weights'] or {'random_forest': 0.4, 'xgboost': 0.35, 'lightgbm': 0.25}
+        if models is None:
+            _load_ml_models_into_cache()
+            models = _ml_models_cache['models']
+            weights = _ml_models_cache['weights'] or weights
         if models is None:
             return predict_earthquake_risk(earthquakes, target_lat, target_lon)
     except Exception as e:
@@ -1898,8 +1892,7 @@ def predict_risk():
         if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
             return jsonify({"error": "Geçersiz koordinatlar. Enlem: -90 ile 90, Boylam: -180 ile 180 arasında olmalı."}), 400
         
-        # Render free tier: ML modelleri (XGBoost/LightGBM) OOM/timeout nedeniyle devre dışı
-        use_ml = data.get('use_ml', False)
+        use_ml = data.get('use_ml', True)  # ML kullanımı (varsayılan: True)
         
         # Deprem verilerini çek
         try:
@@ -3701,9 +3694,46 @@ data_collection_thread = Thread(target=collect_training_data_continuously)
 data_collection_thread.daemon = True
 data_collection_thread.start()
 print("[SISTEM] Sürekli veri toplama sistemi başlatıldı (her 30 dakikada bir).")
+
+# 3. ML modellerini arka planda ön yükle (predict-risk ilk tıklamada hazır olsun)
+def _delayed_ml_preload():
+    time.sleep(15)  # Sunucu ayağa kalktıktan 15 sn sonra
+    _load_ml_models_into_cache()
+ml_preload_thread = Thread(target=_delayed_ml_preload)
+ml_preload_thread.daemon = True
+ml_preload_thread.start()
 print("[SISTEM] Otomatik model eğitimi aktif:")
 print("  - Her 24 saatte bir otomatik eğitim")
 print("  - Veri seti 100, 500, 1000, 2000, 5000, 10000 kayıt eşiklerine ulaştığında otomatik eğitim")
+
+
+def _load_ml_models_into_cache():
+    """ML modellerini cache'e yükle - ilk predict-risk'ten önce arka planda çalışır."""
+    global _ml_models_cache
+    if _ml_models_cache['models']:
+        return
+    try:
+        models = None
+        weights = {'random_forest': 0.4, 'xgboost': 0.35, 'lightgbm': 0.25}
+        try:
+            from train_models import load_latest_model
+            models = load_latest_model()
+        except ImportError:
+            pass
+        if models is None and os.path.exists(RISK_PREDICTION_MODEL_FILE):
+            with open(RISK_PREDICTION_MODEL_FILE, 'rb') as f:
+                model_data = pickle.load(f)
+            if isinstance(model_data, dict) and 'models' in model_data:
+                models = model_data['models']
+                weights = model_data.get('weights', weights)
+            else:
+                models = model_data
+        if models:
+            _ml_models_cache['models'] = models
+            _ml_models_cache['weights'] = weights
+            print("[ML] Modeller arka planda yüklendi - predict-risk hazır")
+    except Exception as e:
+        print(f"[ML] Ön yükleme hatası (normal): {e}")
 
 
 if __name__ == '__main__':

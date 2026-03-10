@@ -86,6 +86,9 @@ ARCHIVE_LIMIT = 2000  # 7 günlük analiz için yeterli
 
 # API veri cache (son 5 dakika)
 api_cache = {'data': None, 'timestamp': 0, 'cache_duration': 300}  # 5 dakika cache
+# Türkiye/İstanbul erken uyarı cache (Render 30sn limiti için - ağır işlemler)
+turkey_warning_cache = {'data': None, 'timestamp': 0, 'cache_duration': 300}
+istanbul_warning_cache = {'data': None, 'timestamp': 0, 'cache_duration': 300}
 
 # Render free tier: 30 sn istek limiti. Kandilli timeout kısa tutulur.
 KANDILLI_TIMEOUT = 12  # Her istek max 12 sn (Live+Archive paralel = ~12 sn toplam)
@@ -1312,12 +1315,26 @@ def turkey_early_warning_system(earthquakes, target_city=None):
     """
     Tüm Türkiye için erken uyarı sistemi.
     M ≥ 5.0 olabilecek yıkıcı depremlerden önce bildirim gönderir.
-    target_city: Belirli bir il için analiz yapılacaksa (None ise tüm iller)
+    Render 30sn limiti için: Sadece deprem olan illeri analiz et, max 25 il.
     """
     warnings = {}
     
-    # Analiz edilecek şehirler
-    cities_to_analyze = [target_city] if target_city and target_city in TURKEY_CITIES else list(TURKEY_CITIES.keys())
+    # Önce hangi illerde deprem var belirle (200km içinde)
+    city_eq_counts = {}
+    for city_name, city_data in TURKEY_CITIES.items():
+        city_lat, city_lon = city_data['lat'], city_data['lon']
+        count = sum(1 for eq in earthquakes if eq.get('geojson') and eq['geojson'].get('coordinates') 
+                    and haversine(city_lat, city_lon, eq['geojson']['coordinates'][1], eq['geojson']['coordinates'][0]) <= 200)
+        if count > 0:
+            city_eq_counts[city_name] = count
+    
+    # En çok deprem olan max 25 ili al (Render 30sn limiti)
+    cities_to_analyze = [target_city] if target_city and target_city in TURKEY_CITIES else \
+        sorted(city_eq_counts.keys(), key=lambda c: city_eq_counts[c], reverse=True)[:25]
+    
+    # Hiç deprem yoksa büyük illeri analiz et
+    if not cities_to_analyze:
+        cities_to_analyze = ['İstanbul', 'Ankara', 'İzmir', 'Bursa', 'Kocaeli', 'Antalya', 'Adana', 'Gaziantep'][:8]
     
     for city_name in cities_to_analyze:
         city_data = TURKEY_CITIES[city_name]
@@ -1944,7 +1961,12 @@ def predict_risk():
 @app.route('/api/istanbul-early-warning', methods=['GET'])
 def istanbul_early_warning():
     """ İstanbul için özel erken uyarı sistemi. """
+    global istanbul_warning_cache
     try:
+        # Cache kontrolü (Render 30sn limiti)
+        now = time.time()
+        if istanbul_warning_cache['data'] and (now - istanbul_warning_cache['timestamp']) < istanbul_warning_cache['cache_duration']:
+            return jsonify(istanbul_warning_cache['data'])
         try:
             earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
             if not earthquake_data:
@@ -1967,6 +1989,8 @@ def istanbul_early_warning():
         
         try:
             warning = istanbul_early_warning_system(earthquake_data)
+            istanbul_warning_cache['data'] = warning
+            istanbul_warning_cache['timestamp'] = time.time()
             return jsonify(warning)
         except Exception as e:
             print(f"[ERROR] İstanbul erken uyarı sistemi hatası: {e}")
@@ -2266,7 +2290,12 @@ def health_check():
 @app.route('/api/turkey-early-warning', methods=['GET'])
 def turkey_early_warning():
     """ Tüm Türkiye için erken uyarı sistemi - M ≥ 5.0 deprem riski tahmini """
+    global turkey_warning_cache
     try:
+        # Cache kontrolü (Render 30sn limiti - ağır işlemler)
+        now = time.time()
+        if turkey_warning_cache['data'] and (now - turkey_warning_cache['timestamp']) < turkey_warning_cache['cache_duration']:
+            return jsonify(turkey_warning_cache['data'])
         try:
             earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
             if not earthquake_data:
@@ -2282,13 +2311,16 @@ def turkey_early_warning():
             active_warnings = {city: data for city, data in warnings.items() 
                              if data['alert_level'] in ['KRİTİK', 'YÜKSEK', 'ORTA']}
             
-            return jsonify({
+            result = {
                 "status": "success",
                 "total_cities_analyzed": len(warnings),
                 "cities_with_warnings": len(active_warnings),
                 "warnings": warnings,
                 "active_warnings": active_warnings
-            })
+            }
+            turkey_warning_cache['data'] = result
+            turkey_warning_cache['timestamp'] = time.time()
+            return jsonify(result)
         except Exception as e:
             print(f"[ERROR] Türkiye erken uyarı sistemi hatası: {e}")
             import traceback

@@ -153,6 +153,11 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(pingServer, 5000);
         setTimeout(pingServer, 15000);
         setInterval(pingServer, 300000); // 5 dakikada bir
+        // Arka planda ağır endpoint'leri önceden çağır (cache ısınsın - ilk tıklamada hızlı yanıt)
+        setTimeout(() => {
+            fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, { method: 'GET', mode: 'cors' }).catch(() => {});
+            fetch(`${RENDER_API_BASE_URL}/api/istanbul-early-warning`, { method: 'GET', mode: 'cors' }).catch(() => {});
+        }, 20000); // 20 sn sonra arka planda
         console.log('[PING] Sunucu uyanık tutma aktif');
     }
     const apiURL = `${RENDER_API_BASE_URL}/api/risk`; 

@@ -69,12 +69,23 @@ function initializeMap2() {
 }
 
 function initializeMap3() {
-    if (mymap3) {
+    if (mymap3 !== null && mymap3._container) {
         mymap3.remove();
+        mymap3 = null;
     }
-    mymap3 = L.map('mapid3').setView([39.0, 35.0], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(mymap3);
+    mymap3 = L.map('mapid3').setView([39.9, 35.8], 6);
+    L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        { maxZoom: 19, attribution: '© OpenStreetMap contributors © CARTO' }
+    ).addTo(mymap3);
     [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap3 && mymap3.invalidateSize(), ms));
+}
+
+function getPredictionColor(probability) {
+    if (probability >= 70) return '#FF1744';
+    if (probability >= 50) return '#ff9800';
+    if (probability >= 30) return '#ffd54f';
+    return '#2ecc71';
 }
 
 function getRiskColor(score) {
@@ -478,15 +489,60 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function fetchPredictionMapData() {
+        if (!document.getElementById('mapid3')) return;
+        initializeMap3();
+
+        fetch(`${RENDER_API_BASE_URL}/api/prediction-map`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors'
+        })
+            .then(response => {
+                if (!response.ok) throw new Error(`Sunucu hatası: ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                if (!data || !data.prediction_points) return;
+
+                const bounds = [];
+                data.prediction_points.forEach(point => {
+                    if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
+
+                    const color = getPredictionColor(point.probability || 0);
+                    bounds.push([point.lat, point.lon]);
+
+                    const marker = L.circleMarker([point.lat, point.lon], {
+                        radius: 12,
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.6,
+                        weight: 2
+                    }).addTo(mymap3);
+
+                    marker.bindPopup(`
+                        <b style="color:${color};">${point.city}</b><br>
+                        Olasılık: <b>%${point.probability ?? 0}</b><br>
+                        Uyarı: <b>${point.alert_level || 'Normal'}</b><br>
+                        Tahmini Büyüklük: <b>${point.predicted_magnitude ?? '—'}</b><br>
+                        Süre: <b>${point.time_to_event || 'Belirsiz'}</b><br>
+                        Son Aktivite: <b>${point.recent_earthquakes ?? 0} deprem</b><br>
+                        Anomali: <b>${point.anomaly_detected ? 'Var' : 'Yok'}</b><br>
+                        <small>${point.message || ''}</small>
+                    `);
+                });
+
+                if (bounds.length > 0) mymap3.fitBounds(bounds, { padding: [50, 50] });
+            })
+            .catch(error => console.error('Prediction map veri çekme hatası:', error));
+    }
+
     function fetchData() {
         fetchRiskData();
         fetchEarthquakeData();
         fetchCityRiskAndHeatmap();
         loadDashboard();
-        // 3. harita (Tahmini Deprem Olasılık) alanı varsa başlat
-        if (document.getElementById('mapid3')) {
-            initializeMap3();
-        }
+        fetchPredictionMapData();
     }
 
     // Dashboard: ML, M≥5, Şehir listesi

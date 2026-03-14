@@ -93,6 +93,55 @@ istanbul_warning_cache = {'data': None, 'timestamp': 0, 'cache_duration': 300}
 # Render free tier: 30 sn istek limiti. Kandilli timeout kısa tutulur.
 KANDILLI_TIMEOUT = 12  # Her istek max 12 sn (Live+Archive paralel = ~12 sn toplam)
 
+
+def parse_eq_datetime(eq):
+    """
+    Deprem kaydındaki tarih ve saat alanlarını okuyup timestamp üretir.
+    Kandilli API'den gelen date/time alanları ile gerçek Unix timestamp döndürür.
+    """
+    date = eq.get("date")
+    time_str = eq.get("time")
+
+    if not date:
+        return None
+
+    formats = [
+        "%Y.%m.%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%d.%m.%Y %H:%M:%S",
+        "%Y.%m.%d",
+        "%d.%m.%Y"
+    ]
+
+    dt_string = date
+    if time_str:
+        dt_string = f"{date} {time_str}"
+
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(dt_string, fmt)
+            return dt.timestamp()
+        except Exception:
+            continue
+
+    return None
+
+
+def get_eq_timestamp(eq):
+    """
+    Deprem için güvenli timestamp döndürür.
+    Öncelik: _parsed_timestamp -> timestamp -> date+time parse -> None.
+    """
+    if eq.get("_parsed_timestamp"):
+        return eq["_parsed_timestamp"]
+    if eq.get("timestamp"):
+        return eq["timestamp"]
+    parsed = parse_eq_datetime(eq)
+    if parsed:
+        return parsed
+    return None
+
+
 def _fetch_from_url(url, max_retries=2, timeout=60):
     """Tek bir URL'den veri çeker."""
     for attempt in range(max_retries):
@@ -167,6 +216,12 @@ def fetch_earthquake_data_with_retry(url, max_retries=2, timeout=60):
         if not data and api_cache['data']:
             print("[CACHE] API boş döndü, önbellek kullanılıyor")
             return api_cache['data']
+
+    # Her deprem kaydına parse edilmiş timestamp ekle (tarih/saat alanlarından)
+    for eq in data:
+        ts = parse_eq_datetime(eq)
+        if ts:
+            eq["_parsed_timestamp"] = ts
 
     api_cache['data'] = data
     api_cache['timestamp'] = current_time
@@ -774,17 +829,16 @@ def extract_features(earthquakes, target_lat, target_lon, time_window_hours=24):
 
     # Zaman penceresi içindeki depremleri filtrele (time_window_hours kullanılır)
     current_time = time.time()
-    window_start = current_time - (time_window_hours * 3600)
-
-    def _ts(eq):
-        return float(eq.get('created_at') or eq.get('timestamp') or current_time)
+    window_start_ts = current_time - (time_window_hours * 3600)
 
     recent_eqs = []
     for eq in earthquakes:
         if not eq.get('geojson') or not eq['geojson'].get('coordinates'):
             continue
-        ts = _ts(eq)
-        if ts < window_start or ts > current_time:
+        eq_timestamp = get_eq_timestamp(eq)
+        if not eq_timestamp:
+            continue
+        if eq_timestamp < window_start_ts or eq_timestamp > current_time:
             continue
         lon, lat = eq['geojson']['coordinates']
         mag = eq.get('mag', 0)
@@ -796,7 +850,7 @@ def extract_features(earthquakes, target_lat, target_lon, time_window_hours=24):
                 'depth': eq.get('depth', 10),
                 'lat': lat,
                 'lon': lon,
-                'timestamp': ts
+                'timestamp': eq_timestamp
             })
 
     # Veri yoksa bile temel özellikler döndür (fay hattı mesafesi, genel aktivite vb.)
@@ -806,8 +860,10 @@ def extract_features(earthquakes, target_lat, target_lon, time_window_hours=24):
         for eq in earthquakes:
             if not eq.get('geojson') or not eq['geojson'].get('coordinates'):
                 continue
-            ts = _ts(eq)
-            if ts < window_start or ts > current_time:
+            eq_timestamp = get_eq_timestamp(eq)
+            if not eq_timestamp:
+                continue
+            if eq_timestamp < window_start_ts or eq_timestamp > current_time:
                 continue
             lon, lat = eq['geojson']['coordinates']
             mag = eq.get('mag', 0)
@@ -819,7 +875,7 @@ def extract_features(earthquakes, target_lat, target_lon, time_window_hours=24):
                     'depth': eq.get('depth', 10),
                     'lat': lat,
                     'lon': lon,
-                    'timestamp': ts
+                    'timestamp': eq_timestamp
                 })
         
         # Eğer hiç deprem yoksa bile temel özellikler döndür
@@ -1338,20 +1394,23 @@ def turkey_early_warning_system(earthquakes, target_city=None):
         # Şehir çevresindeki depremleri filtrele (200 km yarıçap)
         city_earthquakes = []
         for eq in earthquakes:
-            if eq.get('geojson') and eq['geojson'].get('coordinates'):
-                lon, lat = eq['geojson']['coordinates']
-                distance = haversine(city_lat, city_lon, lat, lon)
-                
-                if distance <= 200:
-                    city_earthquakes.append({
-                        'mag': eq.get('mag', 0),
-                        'distance': distance,
-                        'depth': eq.get('depth', 10),
-                        'lat': lat,
-                        'lon': lon,
-                        'timestamp': eq.get('timestamp', time.time()),
-                        'location': eq.get('location', '')
-                    })
+            if not eq.get('geojson') or not eq['geojson'].get('coordinates'):
+                continue
+            eq_ts = get_eq_timestamp(eq)
+            if not eq_ts:
+                continue
+            lon, lat = eq['geojson']['coordinates']
+            distance = haversine(city_lat, city_lon, lat, lon)
+            if distance <= 200:
+                city_earthquakes.append({
+                    'mag': eq.get('mag', 0),
+                    'distance': distance,
+                    'depth': eq.get('depth', 10),
+                    'lat': lat,
+                    'lon': lon,
+                    'timestamp': eq_ts,
+                    'location': eq.get('location', '')
+                })
         
         if len(city_earthquakes) == 0:
             warnings[city_name] = {
@@ -2333,6 +2392,46 @@ def turkey_early_warning():
             "warnings": {}
         }), 500
 
+
+@app.route('/api/prediction-map')
+def prediction_map():
+    """ Tahmini deprem olasılık haritası verisi (3. harita için). """
+    try:
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API)
+        warnings = turkey_early_warning_system(earthquake_data or [])
+
+        prediction_points = []
+        for city, data in warnings.items():
+            city_info = TURKEY_CITIES.get(city)
+            if not city_info:
+                continue
+            probability = min(100, data.get("alert_score", 0) * 10)
+            prediction_points.append({
+                "city": city,
+                "lat": city_info["lat"],
+                "lon": city_info["lon"],
+                "probability": probability,
+                "alert_level": data.get("alert_level", "Normal"),
+                "predicted_magnitude": round(4.5 + probability / 50, 1),
+                "time_to_event": data.get("time_to_event") or f"{int(24 - probability / 4)} saat içinde",
+                "recent_earthquakes": data.get("recent_earthquakes", 0),
+                "anomaly_detected": data.get("anomaly_detected", False),
+            })
+
+        return jsonify({
+            "status": "success",
+            "generated_at": datetime.utcnow().isoformat(),
+            "prediction_points": prediction_points,
+        })
+    except Exception as e:
+        logger.exception(f"[API] prediction-map hatası: {e}")
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "prediction_points": [],
+        }), 500
+
+
 @app.route('/api/city-damage-analysis', methods=['GET'])
 def city_damage_analysis():
     """ İl bazında risk tahmini: Son depremlere ve aktif fay hatlarına göre. """
@@ -2345,16 +2444,17 @@ def city_damage_analysis():
             print(f"[WARNING] API'den veri çekilemedi: {e}")
             earthquake_data = []  # Boş liste ile devam et
     
-        # Son 24 saatteki depremleri filtrele (Türkiye erken uyarı ile tutarlı)
-        recent_earthquakes = []
+        # Son 24 saatteki depremleri filtrele (M >= 3, gerçek timestamp ile)
         current_time = time.time()
-        window_24h = 24 * 3600  # 24 saat saniye cinsinden
-        
+        day_ago = current_time - 86400  # 24 saat
+
+        recent_earthquakes = []
         for eq in earthquake_data:
-            if not eq.get('geojson') or not eq['geojson'].get('coordinates'):
+            eq_timestamp = get_eq_timestamp(eq)
+            if not eq_timestamp:
                 continue
-            ts = eq.get('created_at') or eq.get('timestamp') or 0
-            if ts and (current_time - float(ts)) <= window_24h:
+            magnitude = float(eq.get("mag", 0))
+            if magnitude >= 3 and eq_timestamp >= day_ago:
                 recent_earthquakes.append(eq)
         
         city_risks = {}

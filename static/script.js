@@ -26,6 +26,7 @@ function logApiError(apiName, url, error, response) {
 
 let mymap = null; 
 let mymap2 = null;
+let mymap3 = null;
 
 // Leaflet self-hosted: icon path (Tracking Prevention için CDN yerine local)
 if (typeof L !== 'undefined') {
@@ -65,6 +66,15 @@ function initializeMap2() {
     }).addTo(mymap2);
     // Leaflet boyut hesaplaması - birkaç kez gecikmeli çağır
     [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap2 && mymap2.invalidateSize(), ms));
+}
+
+function initializeMap3() {
+    if (mymap3) {
+        mymap3.remove();
+    }
+    mymap3 = L.map('mapid3').setView([39.0, 35.0], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(mymap3);
+    [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap3 && mymap3.invalidateSize(), ms));
 }
 
 function getRiskColor(score) {
@@ -123,12 +133,14 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('resize', () => {
         if (mymap) mymap.invalidateSize();
         if (mymap2) mymap2.invalidateSize();
+        if (mymap3) mymap3.invalidateSize();
     });
     // Sayfa tam yüklendiğinde harita boyutlarını güncelle
     window.addEventListener('load', () => {
         setTimeout(() => {
             if (mymap) mymap.invalidateSize();
             if (mymap2) mymap2.invalidateSize();
+            if (mymap3) mymap3.invalidateSize();
         }, 100);
     });
     
@@ -471,6 +483,10 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchEarthquakeData();
         fetchCityRiskAndHeatmap();
         loadDashboard();
+        // 3. harita (Tahmini Deprem Olasılık) alanı varsa başlat
+        if (document.getElementById('mapid3')) {
+            initializeMap3();
+        }
     }
 
     // Dashboard: ML, M≥5, Şehir listesi

@@ -257,24 +257,51 @@ def compute_etas_features(recent_eqs: List[Dict], target_lat: float, target_lon:
 
 
 def _get_eq_timestamp(eq: Dict) -> float:
-    """Deprem timestamp'ini al (created_at, timestamp veya date_time)."""
+    """Deprem timestamp'ini güvenli şekilde çıkar (her zaman saniye); yoksa 0 döner."""
+    def _to_seconds(t: float) -> float:
+        if t > 1e12:
+            return t / 1000.0
+        return t
+
     if 'created_at' in eq and eq['created_at']:
-        return float(eq['created_at'])
+        try:
+            return _to_seconds(float(eq['created_at']))
+        except Exception:
+            pass
     if 'timestamp' in eq and eq['timestamp']:
-        return float(eq['timestamp'])
-    return time.time()
+        try:
+            return _to_seconds(float(eq['timestamp']))
+        except Exception:
+            pass
+    date_str = eq.get("date")
+    time_str = eq.get("time")
+    if date_str:
+        dt_string = f"{date_str} {time_str}".strip()
+        for fmt in (
+            "%Y.%m.%d %H:%M:%S",
+            "%Y-%m-%d %H:%M:%S",
+            "%d.%m.%Y %H:%M:%S",
+            "%Y.%m.%d",
+            "%Y-%m-%d",
+            "%d.%m.%Y",
+        ):
+            try:
+                return datetime.strptime(dt_string, fmt).timestamp()
+            except Exception:
+                continue
+    return 0.0
 
 
 def extract_features(earthquakes: List[Dict], target_lat: float, target_lon: float,
-                    time_window_hours: int = 168) -> Optional[Dict]:
+                    time_window_hours: int = 168, ref_time: Optional[float] = None) -> Optional[Dict]:
     """
     Deprem verilerinden özellik çıkarır.
-    depth, magnitude, time difference, regional frequency dahil.
+    ref_time verilirse "şimdi" yerine o timestamp kullanılır (forecast eğitimi için).
     """
     if not earthquakes:
         return None
 
-    current_time = time.time()
+    current_time = float(ref_time) if ref_time is not None else time.time()
     window_start = current_time - (time_window_hours * 3600)
 
     recent_eqs = []
@@ -285,6 +312,8 @@ def extract_features(earthquakes: List[Dict], target_lat: float, target_lon: flo
         mag = eq.get('mag', 0)
         depth = eq.get('depth', 10)
         ts = _get_eq_timestamp(eq)
+        if ts <= 0:
+            continue
         # Zaman penceresi filtresi (time_window_hours kullanılır)
         if ts < window_start or ts > current_time:
             continue
@@ -338,7 +367,8 @@ def extract_features(earthquakes: List[Dict], target_lat: float, target_lon: flo
             'time_since_last': 86400, 'regional_frequency': 0,
             'cluster_count': 0, 'in_cluster': 0, 'nearest_cluster_distance': 300,
             'cluster_density': 0, 'max_cluster_size': 0, 'nearest_cluster_max_mag': 0,
-            'etas_score': 0.0, 'etas_max_influence': 0.0, 'etas_event_count': 0
+            'etas_score': 0.0, 'etas_max_influence': 0.0, 'etas_event_count': 0,
+            'recency_weighted_energy': 0.0, 'b_value_proxy': 1.0, 'swarm_intensity': 0.0
         }
         return empty
 
@@ -411,6 +441,37 @@ def extract_features(earthquakes: List[Dict], target_lat: float, target_lon: flo
         features['magnitude_trend'] = float(second_avg - first_avg)
     else:
         features['magnitude_trend'] = 0
+
+    # Recency-weighted energy (yakın zamandaki depremler daha ağır)
+    if recent_eqs:
+        weighted_energy = 0.0
+        for e in recent_eqs:
+            dt_hours = max((current_time - e["timestamp"]) / 3600.0, 1e-6)
+            energy = 10 ** (1.5 * e["mag"])
+            weighted_energy += energy / (1.0 + dt_hours)
+        features["recency_weighted_energy"] = float(np.log10(weighted_energy + 1.0))
+    else:
+        features["recency_weighted_energy"] = 0.0
+
+    # b-value proxy (büyüklük dağılımı)
+    if len(magnitudes) >= 5:
+        mmin = max(1.0, float(np.min(magnitudes)))
+        mean_mag = float(np.mean(magnitudes))
+        if mean_mag > mmin:
+            b_value = np.log10(np.e) / max(mean_mag - mmin, 1e-6)
+        else:
+            b_value = 1.0
+        features["b_value_proxy"] = float(b_value)
+    else:
+        features["b_value_proxy"] = 1.0
+
+    # Swarm intensity (son 6h / son 24h oranı)
+    if len(recent_eqs) >= 2:
+        recent_24h = sum(1 for e in recent_eqs if (current_time - e["timestamp"]) <= 24 * 3600)
+        recent_6h = sum(1 for e in recent_eqs if (current_time - e["timestamp"]) <= 6 * 3600)
+        features["swarm_intensity"] = float(recent_6h / max(recent_24h, 1))
+    else:
+        features["swarm_intensity"] = 0.0
 
     return features
 
@@ -801,3 +862,166 @@ def _create_training_records_batch(earthquakes: List[Dict], time_windows: List[i
                 'time_window_hours': tw
             })
     return all_records
+
+
+def _get_reference_times(
+    raw_eqs: List[Dict],
+    min_past_hours: float = 48,
+    min_future_hours: float = 168,
+    step_hours: float = 24,
+    max_refs: int = 2000,
+) -> List[float]:
+    """Eğitim için referans zamanları (saniye cinsinden). Timestamp ms ise saniyeye çevrilir; ref sayısı max_refs ile sınırlanır."""
+    timestamps = []
+    for eq in raw_eqs:
+        ts = _get_eq_timestamp(eq)
+        if ts > 0:
+            timestamps.append(ts)
+    if not timestamps:
+        return []
+    min_ts = min(timestamps)
+    max_ts = max(timestamps)
+    # Veri ms cinsindeyse saniyeye çevir (örn. 1e12 üstü)
+    if min_ts > 1e12 or max_ts > 1e12:
+        min_ts = min_ts / 1000.0 if min_ts > 1e12 else min_ts
+        max_ts = max_ts / 1000.0 if max_ts > 1e12 else max_ts
+    start_ref = min_ts + min_past_hours * 3600
+    end_ref = max_ts - min_future_hours * 3600
+    if start_ref >= end_ref:
+        return []
+    refs = []
+    t = start_ref
+    while t <= end_ref:
+        refs.append(t)
+        t += step_hours * 3600
+    if len(refs) > max_refs:
+        step = len(refs) / max_refs
+        refs = [refs[int(i * step)] for i in range(max_refs)]
+    return refs
+
+
+def _format_duration(seconds: float) -> str:
+    """Saniyeyi 'X dk Y sn' formatına çevirir."""
+    if seconds < 60:
+        return f"{int(seconds)} sn"
+    m = int(seconds // 60)
+    s = int(seconds % 60)
+    if m >= 60:
+        h = m // 60
+        m = m % 60
+        return f"{h} sa {m} dk"
+    return f"{m} dk {s} sn"
+
+
+def create_forecast_training_records(earthquakes: List[Dict], time_window_hours: int = 48) -> List[Dict]:
+    """
+    Geleceğe dönük hedeflerle eğitim kayıtları üretir.
+    Performans: timestamp cache + sıralı geçmiş pencere (past_idx). max_refs=400.
+    """
+    if not earthquakes:
+        return []
+
+    raw_eqs = [e for e in earthquakes if e.get("geojson") and e["geojson"].get("coordinates")]
+    if not raw_eqs:
+        return []
+
+    try:
+        from forecast_targets import build_binary_target, build_count_target, build_maxmag_target
+    except ImportError:
+        return []
+
+    ref_times = _get_reference_times(
+        raw_eqs,
+        min_past_hours=48,
+        min_future_hours=168,
+        step_hours=24,
+        max_refs=400,
+    )
+    if not ref_times:
+        return []
+
+    cities_items = list(TURKEY_CITIES.items())
+    total_steps = len(ref_times) * len(cities_items)
+    print(f"  [forecast] Kayıt üretimi: {len(ref_times)} referans × {len(cities_items)} il = {total_steps} adım")
+
+    normalized_events = []
+    raw_eqs_with_ts = []
+
+    for eq in raw_eqs:
+        lon, lat = eq["geojson"]["coordinates"]
+        ts = _get_eq_timestamp(eq)
+        if ts <= 0:
+            continue
+        normalized = {
+            "lat": float(lat),
+            "lon": float(lon),
+            "mag": float(eq.get("mag", 0) or 0),
+            "depth": float(eq.get("depth", 10) or 10),
+            "timestamp": float(ts),
+        }
+        normalized_events.append(normalized)
+        eq_copy = dict(eq)
+        eq_copy["_cached_timestamp"] = float(ts)
+        raw_eqs_with_ts.append(eq_copy)
+
+    if not raw_eqs_with_ts:
+        return []
+
+    raw_eqs_with_ts.sort(key=lambda x: x["_cached_timestamp"])
+    normalized_events.sort(key=lambda x: x["timestamp"])
+
+    records = []
+    done = 0
+    t_start = time.time()
+    report_every = max(1, total_steps // 20)
+
+    past_idx = 0
+    n_eq = len(raw_eqs_with_ts)
+
+    for ri, ref_ts in enumerate(ref_times):
+        while past_idx < n_eq and raw_eqs_with_ts[past_idx]["_cached_timestamp"] <= ref_ts:
+            past_idx += 1
+        past_eqs = raw_eqs_with_ts[:past_idx]
+
+        for city_name, city_data in cities_items:
+            lat = city_data["lat"]
+            lon = city_data["lon"]
+            features = extract_features(
+                past_eqs,
+                lat,
+                lon,
+                time_window_hours=time_window_hours,
+                ref_time=ref_ts,
+            )
+            if not features:
+                done += 1
+                continue
+            y_m4_24h = build_binary_target(normalized_events, lat, lon, ref_ts, 24, 100, 4.0)
+            y_m5_72h = build_binary_target(normalized_events, lat, lon, ref_ts, 72, 150, 5.0)
+            y_count_24h = build_count_target(normalized_events, lat, lon, ref_ts, 24, 100, 2.5)
+            y_maxmag_7d = build_maxmag_target(normalized_events, lat, lon, ref_ts, 168, 150)
+            records.append({
+                "city": city_name,
+                "lat": lat,
+                "lon": lon,
+                "timestamp": ref_ts,
+                "features": features,
+                "y_m4_24h": y_m4_24h,
+                "y_m5_72h": y_m5_72h,
+                "y_count_24h": y_count_24h,
+                "y_maxmag_7d": y_maxmag_7d,
+            })
+            done += 1
+
+            if done % report_every == 0 or done == total_steps:
+                elapsed = time.time() - t_start
+                rate = done / elapsed if elapsed > 0 else 0
+                remaining = (total_steps - done) / rate if rate > 0 else 0
+                print(
+                    f"  [forecast] Geçen: {_format_duration(elapsed)} | "
+                    f"Tahmini kalan: {_format_duration(remaining)} | "
+                    f"Kayıt: {len(records)}"
+                )
+
+    print(f"  [forecast] Kayıt üretimi bitti. Toplam süre: {_format_duration(time.time() - t_start)} | {len(records)} kayıt.")
+    return records

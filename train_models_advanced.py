@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# LEGACY TRAINING FILE
+# Yeni forecast pipeline için: python forecast/trainer.py
 # Gelişmiş ML Model Eğitimi - En Mükemmel Performans İçin
 
 import sys

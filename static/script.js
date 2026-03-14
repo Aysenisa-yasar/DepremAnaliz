@@ -79,6 +79,7 @@ function initializeMap3() {
         { maxZoom: 19, attribution: '© OpenStreetMap contributors © CARTO' }
     ).addTo(mymap3);
     [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap3 && mymap3.invalidateSize(), ms));
+    setTimeout(() => { if (mymap3) mymap3.invalidateSize(); }, 200);
 }
 
 function getPredictionColor(probability) {
@@ -493,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!document.getElementById('mapid3')) return;
         initializeMap3();
 
-        fetch(`${RENDER_API_BASE_URL}/api/prediction-map`, {
+        fetch(`${RENDER_API_BASE_URL}/api/v2/forecast-map`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
             mode: 'cors'
@@ -503,38 +504,112 @@ document.addEventListener('DOMContentLoaded', () => {
                 return response.json();
             })
             .then(data => {
-                if (!data || !data.prediction_points) return;
+                const points = data && data.points ? data.points : (data && data.prediction_points ? data.prediction_points : null);
+                if (!points || !points.length) return;
 
                 const bounds = [];
-                data.prediction_points.forEach(point => {
+                points.forEach(point => {
                     if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
 
-                    const color = getPredictionColor(point.probability || 0);
+                    const probPct = (Number(point.probability ?? 0) * 100);
+                    const color = getPredictionColor(probPct);
+                    const radius = Math.max(8, Math.min(24, 8 + (Number(point.risk_score ?? 0) * 10) / 6));
                     bounds.push([point.lat, point.lon]);
 
                     const marker = L.circleMarker([point.lat, point.lon], {
-                        radius: 12,
+                        radius: radius,
                         color: color,
                         fillColor: color,
                         fillOpacity: 0.6,
                         weight: 2
                     }).addTo(mymap3);
 
+                    const featureHtml = (point.top_features || [])
+                        .map(f => `${f.feature}: ${Number(f.impact).toFixed(3)}`)
+                        .join('<br>');
                     marker.bindPopup(`
                         <b style="color:${color};">${point.city}</b><br>
-                        Olasılık: <b>%${point.probability ?? 0}</b><br>
-                        Uyarı: <b>${point.alert_level || 'Normal'}</b><br>
-                        Tahmini Büyüklük: <b>${point.predicted_magnitude ?? '—'}</b><br>
-                        Süre: <b>${point.time_to_event || 'Belirsiz'}</b><br>
-                        Son Aktivite: <b>${point.recent_earthquakes ?? 0} deprem</b><br>
+                        Risk: <b>${Number(point.risk_score ?? 0).toFixed(2)}/10</b><br>
+                        Final Olasılık: <b>${(Number(point.probability ?? 0) * 100).toFixed(1)}%</b><br>
+                        ML: <b>${(Number(point.ml_probability ?? 0) * 100).toFixed(1)}%</b><br>
+                        ETAS: <b>${(Number(point.etas_probability ?? 0) * 100).toFixed(1)}%</b><br>
+                        Fay Segmenti: <b>${point.nearest_fault_segment || 'unknown'}</b><br>
+                        Fay Uzaklığı: <b>${Number(point.fault_distance ?? 999).toFixed(1)} km</b><br>
+                        Stress: <b>${(Number(point.stress_transfer ?? 0) * 100).toFixed(1)}%</b><br>
+                        Energy: <b>${Number(point.energy_release ?? 0).toFixed(2)}</b><br>
+                        Foreshock: <b>${point.foreshock_count ?? 0}</b><br>
                         Anomali: <b>${point.anomaly_detected ? 'Var' : 'Yok'}</b><br>
-                        <small>${point.message || ''}</small>
+                        <hr><b>En etkili özellikler</b><br>${featureHtml || 'Yok'}
                     `);
                 });
 
                 if (bounds.length > 0) mymap3.fitBounds(bounds, { padding: [50, 50] });
+                fetchForecastGrid(RENDER_API_BASE_URL);
             })
-            .catch(error => console.error('Prediction map veri çekme hatası:', error));
+            .catch(error => {
+                console.error('Forecast map veri çekme hatası:', error);
+                fetchPredictionMapDataFallback();
+            });
+    }
+
+    function fetchPredictionMapDataFallback() {
+        if (!mymap3) return;
+        fetch(`${RENDER_API_BASE_URL}/api/prediction-map`, { method: 'GET', mode: 'cors' })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data || !data.prediction_points) return;
+                const bounds = [];
+                data.prediction_points.forEach(point => {
+                    if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
+                    const riskValue = point.risk_percent ?? point.probability ?? 0;
+                    const color = getPredictionColor(riskValue);
+                    const radius = Math.max(8, Math.min(24, 8 + riskValue / 6));
+                    bounds.push([point.lat, point.lon]);
+                    const marker = L.circleMarker([point.lat, point.lon], {
+                        radius, color, fillColor: color, fillOpacity: 0.6, weight: 2
+                    }).addTo(mymap3);
+                    marker.bindPopup(`
+                        <b>${point.city}</b><br>
+                        Legacy Risk: <b>%${riskValue}</b><br>
+                        Analiz Penceresi: <b>${point.analysis_window || 'Son 48 saat'}</b><br>
+                        Maks. Büyüklük: <b>${(point.max_magnitude != null && typeof point.max_magnitude === 'number') ? point.max_magnitude.toFixed(2) : (point.max_magnitude ?? '—')}</b><br>
+                        En Yakın Mesafe: <b>${point.min_distance ?? '—'} km</b><br>
+                        Anomali: <b>${point.anomaly_detected ? 'Var' : 'Yok'}</b>
+                    `);
+                });
+                if (bounds.length > 0) mymap3.fitBounds(bounds, { padding: [50, 50] });
+            })
+            .catch(() => {});
+    }
+
+    function fetchForecastGrid(base) {
+        fetch(`${base}/api/v2/forecast-grid`, { method: 'GET', mode: 'cors' })
+            .then(r => r.json())
+            .then(data => {
+                if (!data || !data.points || !window.mymap3) return;
+                data.points.forEach(point => {
+                    const p = Number(point.probability || 0);
+                    const color = p >= 0.60 ? '#FF1744' : p >= 0.35 ? '#ff9800' : p >= 0.15 ? '#ffd54f' : '#2ecc71';
+                    const marker = L.circleMarker([point.lat, point.lon], {
+                        radius: 4,
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.12,
+                        weight: 1
+                    }).addTo(mymap3);
+                    marker.bindPopup(`
+                        <b>Grid Noktası</b><br>
+                        Risk: ${Number(point.risk_score || 0).toFixed(2)}/10<br>
+                        Olasılık: ${(Number(point.probability || 0) * 100).toFixed(1)}%<br>
+                        ML: ${(Number(point.ml_probability || 0) * 100).toFixed(1)}%<br>
+                        ETAS: ${(Number(point.etas_probability || 0) * 100).toFixed(1)}%<br>
+                        Fay Segmenti: ${point.nearest_fault_segment || 'unknown'}<br>
+                        Fay Uzaklığı: ${Number(point.fault_distance || 999).toFixed(1)} km<br>
+                        Stress: ${(Number(point.stress_transfer || 0) * 100).toFixed(1)}%
+                    `);
+                });
+            })
+            .catch(err => console.error('forecast-grid error:', err));
     }
 
     function fetchData() {
@@ -557,29 +632,32 @@ document.addEventListener('DOMContentLoaded', () => {
     function loadMLMetrics(base) {
         const el = document.getElementById('mlMetricsContent');
         if (!el) return;
-        fetch(`${base}/api/ml-metrics`, { method: 'GET', mode: 'cors' })
+
+        fetch(`${base}/api/v2/forecast-metrics`, { method: 'GET', mode: 'cors' })
             .then(r => r.json())
             .then(data => {
-                if (data.status === 'success' && data.metrics) {
-                    const m = data.metrics;
+                if (data.status === 'success') {
+                    const m = data.metrics || {};
                     el.innerHTML = `
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                            <div><strong>Model:</strong> ${data.version || 'N/A'}</div>
+                        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:15px;">
+                            <div><strong>Model:</strong> ${data.model_type || 'forecast_hybrid_v1'}</div>
                             <div><strong>Eğitim:</strong> ${data.trained_at ? new Date(data.trained_at).toLocaleString('tr-TR') : 'N/A'}</div>
-                            <div><strong>Accuracy:</strong> ${(m.accuracy * 100 || 0).toFixed(2)}%</div>
-                            <div><strong>F1 Score:</strong> ${(m.f1_score * 100 || 0).toFixed(2)}%</div>
-                            <div><strong>MSE:</strong> ${(m.mse || 0).toFixed(4)}</div>
-                            <div><strong>Eğitim Örnek:</strong> ${(m.samples_train || 0).toLocaleString()}</div>
-                            <div><strong>Test Örnek:</strong> ${(m.samples_test || 0).toLocaleString()}</div>
+                            <div><strong>ROC-AUC:</strong> ${(m.roc_auc ?? 0).toFixed(3)}</div>
+                            <div><strong>PR-AUC:</strong> ${(m.pr_auc ?? 0).toFixed(3)}</div>
+                            <div><strong>Brier:</strong> ${(m.brier ?? 0).toFixed(4)}</div>
+                            <div><strong>Pozitif oran:</strong> ${(m.positive_rate ?? 0).toFixed(3)}</div>
+                            <div><strong>Örnek sayısı:</strong> ${m.samples ?? 0}</div>
                         </div>
                     `;
+                } else if (data.status === 'no_model') {
+                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Forecast modeli bulunamadı. Önce forecast eğitimi çalıştır.</p>';
                 } else {
-                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Model henüz eğitilmemiş. "Modelleri Eğit" butonunu kullanın.</p>';
+                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Forecast metrikleri alınamadı.</p>';
                 }
             })
             .catch(error => {
-                logApiError('loadMLMetrics', `${base}/api/ml-metrics`, error);
-                el.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. (${error.message})</p>`;
+                logApiError('loadMLMetrics', `${base}/api/v2/forecast-metrics`, error);
+                el.innerHTML = `<p style="color: #FF1744;">Forecast metrikleri yüklenemedi. (${error.message})</p>`;
             });
     }
 

@@ -28,12 +28,29 @@ import requests.exceptions
 import pandas as pd 
 from textblob import TextBlob
 
+from earthquake_features import extract_features
+
+# API istek loglama (logger önce tanımlanmalı; blueprint import'ta kullanılıyor)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
 # --- FLASK UYGULAMASI VE AYARLARI ---
 app = Flask(__name__)
 
-# API istek loglama (sunucuya bağlanamama hatalarını debug için)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-logger = logging.getLogger(__name__)
+# Yeni mimari: forecast + services + routes (v2 API)
+try:
+    from routes.forecast_routes import forecast_bp
+    from routes.metrics_routes import metrics_bp
+    app.register_blueprint(forecast_bp)
+    app.register_blueprint(metrics_bp)
+except ImportError as e:
+    logger.warning("[APP] Yeni mimari blueprint'ler yüklenemedi (routes/forecast/): %s", e)
+
+# =========================================================
+# LEGACY ROUTES BELOW
+# Yeni frontend /api/v2/* endpointlerini kullanır.
+# app.py içindeki eski route'lar geri uyumluluk içindir.
+# =========================================================
 
 # CORS - Render + GitHub Pages için kesin çözüm
 # Tüm origin'lere izin ver (localhost, github.io, depremanaliz.onrender.com)
@@ -139,6 +156,35 @@ def parse_eq_datetime(eq):
 def get_eq_timestamp(eq):
     """Deprem kaydının timestamp'ını güvenli şekilde döndürür."""
     return parse_eq_datetime(eq)
+
+
+def get_recent_earthquakes(earthquakes, hours=48):
+    """Son X saat içindeki depremleri filtreler (Kandilli verisi ile risk analizi için)."""
+    now = time.time()
+    start = now - (hours * 3600)
+    recent = []
+    for eq in earthquakes or []:
+        ts = get_eq_timestamp(eq)
+        if not ts:
+            continue
+        if ts >= start:
+            mag = float(eq.get("mag", 0) or 0)
+            lat, lon = None, None
+            if eq.get("geojson") and eq["geojson"].get("coordinates"):
+                lon, lat = eq["geojson"]["coordinates"]
+            else:
+                lat = eq.get("lat")
+                lon = eq.get("lng") or eq.get("lon")
+            if lat is None or lon is None:
+                continue
+            recent.append({
+                "mag": mag,
+                "lat": float(lat),
+                "lon": float(lon),
+                "timestamp": ts,
+                "depth": float(eq.get("depth", 10) or 10),
+            })
+    return recent
 
 
 # Render free tier: 30 sn istek limiti. Kandilli timeout kısa tutulur.
@@ -275,21 +321,98 @@ user_alerts = load_user_alerts()
 
 # --- GELİŞMİŞ MAKİNE ÖĞRENMESİ MODELLERİ ---
 EARTHQUAKE_HISTORY_FILE = 'earthquake_history.json'
-MODEL_DIR = 'ml_models'
+MODEL_DIR = 'models'
 ISTANBUL_ALERT_HISTORY = deque(maxlen=1000)  # Son 1000 deprem verisi
 
 # Chatbot context memory (session bazlı)
 chatbot_contexts = {}  # {session_id: {'history': [], 'user_mood': None, 'topics': []}}
 
-# Model dosyaları
+# Model dosyaları (gerçek modeller models/model_v*.pkl, models/anomaly_v*.pkl)
 RISK_PREDICTION_MODEL_FILE = f'{MODEL_DIR}/risk_prediction_model.pkl'
 # ML model cache - her istekte yükleme yerine bir kez yükle (OOM/timeout önleme)
 _ml_models_cache = {'models': None, 'weights': None}
 ISTANBUL_EARLY_WARNING_MODEL_FILE = f'{MODEL_DIR}/istanbul_early_warning_model.pkl'
-ANOMALY_DETECTION_MODEL_FILE = f'{MODEL_DIR}/anomaly_detection_model.pkl'
+ANOMALY_DETECTION_MODEL_FILE = f'{MODEL_DIR}/anomaly_latest.pkl'
 
-# Model dosyalarını oluştur
+# Model klasörünü oluştur
 os.makedirs(MODEL_DIR, exist_ok=True)
+
+
+def _risk_model_file_exists():
+    """models/ içinde model_v*.pkl veya risk_prediction_model.pkl var mı kontrol eder."""
+    if not os.path.exists(MODEL_DIR):
+        return False
+    if os.path.exists(RISK_PREDICTION_MODEL_FILE):
+        return True
+    try:
+        for f in os.listdir(MODEL_DIR):
+            if f.startswith("model_v") and f.endswith(".pkl"):
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _get_risk_model_size_kb():
+    """Risk model dosyası boyutunu KB cinsinden döndürür."""
+    if os.path.exists(RISK_PREDICTION_MODEL_FILE):
+        return round(os.path.getsize(RISK_PREDICTION_MODEL_FILE) / 1024, 2)
+    if not os.path.exists(MODEL_DIR):
+        return 0
+    try:
+        for f in sorted(os.listdir(MODEL_DIR), reverse=True):
+            if f.startswith("model_v") and f.endswith(".pkl"):
+                return round(os.path.getsize(os.path.join(MODEL_DIR, f)) / 1024, 2)
+    except OSError:
+        pass
+    return 0
+
+
+def load_latest_anomaly_model():
+    """models/anomaly_v*.pkl dosyalarından en son sürümü yükler."""
+    if not os.path.exists(MODEL_DIR):
+        return None
+    latest_v = 0
+    latest_path = None
+    try:
+        for f in os.listdir(MODEL_DIR):
+            if f.startswith("anomaly_v") and f.endswith(".pkl"):
+                try:
+                    v = int(f.replace("anomaly_v", "").replace(".pkl", ""))
+                    if v > latest_v:
+                        latest_v = v
+                        latest_path = os.path.join(MODEL_DIR, f)
+                except ValueError:
+                    pass
+    except OSError:
+        return None
+    if not latest_path:
+        return None
+    try:
+        with open(latest_path, "rb") as f:
+            data = pickle.load(f)
+        return data.get("model") if isinstance(data, dict) else data
+    except Exception:
+        return None
+
+
+def load_latest_forecast_model():
+    """Olasılıksal forecast modeli (forecast_latest.pkl) yükler; eksik anahtarlarda None döner."""
+    forecast_path = os.path.join(MODEL_DIR, "forecast_latest.pkl")
+    if not os.path.exists(forecast_path):
+        return None
+    try:
+        with open(forecast_path, "rb") as f:
+            model_data = pickle.load(f)
+        required_keys = {"clf_m4_24h", "clf_m5_72h", "reg_count_24h", "reg_maxmag_7d"}
+        if not isinstance(model_data, dict) or not required_keys.issubset(set(model_data.keys())):
+            logger.warning("[ML] Forecast model dosyası eksik anahtarlar içeriyor.")
+            return None
+        return model_data
+    except Exception as e:
+        logger.exception("[ML] Forecast model yüklenemedi: %s", e)
+        return None
+
 
 # İstanbul koordinatları
 ISTANBUL_COORDS = {"lat": 41.0082, "lon": 28.9784}
@@ -770,6 +893,33 @@ def haversine(lat1, lon1, lat2, lon2):
     distance = R * c
     return distance
 
+
+def calculate_city_risk(city_lat, city_lon, earthquakes):
+    """
+    Şehir için son 48 saatlik deprem aktivitesine göre risk skoru üretir.
+    extract_features ve detect_anomalies kullanır; (score, anomaly, count, features) döner.
+    """
+    features = extract_features(earthquakes or [], city_lat, city_lon, time_window_hours=48)
+    if not features:
+        return 0.0, False, 0, {}
+
+    anomaly_data = detect_anomalies(earthquakes or [], city_lat, city_lon)
+    anomaly = anomaly_data.get("anomaly_detected", False)
+
+    score = 0.0
+    score += min(features.get("count", 0) / 20.0, 1.0) * 0.20
+    score += min(features.get("max_magnitude", 0) / 6.0, 1.0) * 0.25
+    score += (1 - min(features.get("min_distance", 300) / 200.0, 1.0)) * 0.20
+    score += min(features.get("mag_above_4", 0) / 5.0, 1.0) * 0.15
+    score += min(max(features.get("magnitude_trend", 0), 0), 1.0) * 0.10
+    score += (1 - min(features.get("nearest_fault_distance", 200) / 150.0, 1.0)) * 0.10
+    if anomaly:
+        score += 0.10
+    score = min(score, 1.0)
+
+    return score, anomaly, features.get("count", 0), features
+
+
 def calculate_clustering_risk(earthquakes):
     """ K-Means kümeleme algoritması kullanarak risk bölgelerini tespit eder. """
     
@@ -816,10 +966,10 @@ def calculate_clustering_risk(earthquakes):
 
 # --- GELİŞMİŞ MAKİNE ÖĞRENMESİ FONKSİYONLARI ---
 
-def extract_features(earthquakes, target_lat, target_lon, time_window_hours=24):
+def extract_features_legacy(earthquakes, target_lat, target_lon, time_window_hours=24):
     """
-    Deprem verilerinden gelişmiş özellikler çıkarır (Feature Engineering).
-    Zaman penceresi filtresi gerçekten uygulanır.
+    Legacy fallback: Deprem verilerinden özellik çıkarır (earthquake_features import yoksa).
+    Ana kullanım: earthquake_features.extract_features (yukarıda import edildi).
     """
     if not earthquakes:
         return None
@@ -1047,63 +1197,93 @@ def train_risk_prediction_model(earthquake_history):
 
 def predict_risk_with_ml(earthquakes, target_lat, target_lon):
     """
-    Gelişmiş ML modeli ile risk tahmini yapar.
-    Modeller cache'den yüklenir - her istekte disk okuma yok (OOM/timeout önleme).
+    Olasılıksal forecast modeli varsa onu kullanır (geleceğe dönük hedefler);
+    yoksa eski risk-score/ensemble ML ile fallback.
     """
-    global _ml_models_cache
-    # Özellik çıkarımı
-    features = extract_features(earthquakes, target_lat, target_lon)
-    
+    features = extract_features(earthquakes, target_lat, target_lon, time_window_hours=48)
     if features is None:
-        return predict_earthquake_risk(earthquakes, target_lat, target_lon)
-    
-    # Model yükle - cache varsa kullan, yoksa bir kez yükle
+        return {
+            "risk_level": "Düşük",
+            "risk_score": 0,
+            "method": "forecast_unavailable",
+            "reason": "Feature üretilemedi",
+            "features": {},
+            "model_type": "legacy_risk_fallback",
+        }
+
     try:
-        models = _ml_models_cache['models']
-        weights = _ml_models_cache['weights'] or {'random_forest': 0.4, 'xgboost': 0.35, 'lightgbm': 0.25}
+        from train_models import build_feature_vector_for_prediction
+        X = build_feature_vector_for_prediction(features)
+    except Exception:
+        X = None
+    if X is None:
+        return {
+            "risk_level": "Düşük",
+            "risk_score": 0,
+            "method": "forecast_unavailable",
+            "reason": "Feature vektörü üretilemedi",
+            "features": features,
+            "model_type": "legacy_risk_fallback",
+        }
+
+    forecast_model = load_latest_forecast_model()
+    if forecast_model and "clf_m4_24h" in forecast_model and "clf_m5_72h" in forecast_model:
+        try:
+            p_m4_24h = float(forecast_model["clf_m4_24h"].predict_proba(X)[0, 1])
+            p_m5_72h = float(forecast_model["clf_m5_72h"].predict_proba(X)[0, 1])
+            expected_count_24h = float(forecast_model["reg_count_24h"].predict(X)[0])
+            expected_maxmag_7d = float(forecast_model["reg_maxmag_7d"].predict(X)[0])
+        except Exception:
+            forecast_model = None
+    else:
+        forecast_model = None
+
+    if forecast_model is not None:
+        combined_risk = min(10.0, max(0.0, (p_m4_24h * 5.0) + (p_m5_72h * 5.0)))
+        if combined_risk >= 7.5:
+            level = "Çok Yüksek"
+        elif combined_risk >= 5.5:
+            level = "Yüksek"
+        elif combined_risk >= 3.5:
+            level = "Orta"
+        else:
+            level = "Düşük"
+        return {
+            "risk_level": level,
+            "risk_score": round(combined_risk, 2),
+            "method": "probabilistic_forecast",
+            "model_type": "probabilistic_forecast",
+            "prob_m4p_next_24h": round(p_m4_24h, 4),
+            "prob_m5p_next_72h": round(p_m5_72h, 4),
+            "expected_eq_count_next_24h": round(expected_count_24h, 2),
+            "expected_max_mag_next_7d": round(expected_maxmag_7d, 2),
+            "features": features,
+        }
+
+    # Fallback: eski ML / heuristic
+    global _ml_models_cache
+    try:
+        models = _ml_models_cache.get("models")
+        weights = _ml_models_cache.get("weights") or {"random_forest": 0.4, "xgboost": 0.35, "lightgbm": 0.25}
         if models is None:
             _load_ml_models_into_cache()
-            models = _ml_models_cache['models']
-            weights = _ml_models_cache['weights'] or weights
+            models = _ml_models_cache.get("models")
+            weights = _ml_models_cache.get("weights") or weights
         if models is None:
             return predict_earthquake_risk(earthquakes, target_lat, target_lon)
     except Exception as e:
-        print(f"Model yüklenemedi: {e}")
-        return {"risk_level": "Düşük", "risk_score": 2.0, "method": "fallback", "reason": "Model hatası"}
-    
-    # Feature vektörü (neighbor_activity + ETAS dahil)
-    try:
-        from train_models import build_feature_vector_for_prediction
-        feature_vector = build_feature_vector_for_prediction(features)
-    except ImportError:
-        feature_vector = np.array([[
-            features.get('count', 0), features.get('max_magnitude', 0),
-            features.get('mean_magnitude', 0), features.get('std_magnitude', 0),
-            features.get('min_distance', 300), features.get('mean_distance', 300),
-            features.get('mean_depth', 10), features.get('mean_interval', 3600),
-            features.get('min_interval', 3600), features.get('mag_above_4', 0),
-            features.get('mag_above_5', 0), features.get('within_50km', 0),
-            features.get('within_100km', 0), features.get('nearest_fault_distance', 200),
-            features.get('activity_density', 0), features.get('magnitude_distance_ratio', 0),
-            features.get('magnitude_trend', 0), features.get('neighbor_activity', 0),
-            features.get('cluster_count', 0), features.get('in_cluster', 0),
-            features.get('nearest_cluster_distance', 300), features.get('cluster_density', 0),
-            features.get('max_cluster_size', 0), features.get('nearest_cluster_max_mag', 0)
-        ]])
-    
-    # Tahmin (XGBoost tek veya ensemble)
-    if 'xgboost' in models and ('random_forest' not in models or 'lightgbm' not in models):
-        risk_score = float(models['xgboost'].predict(feature_vector)[0])
-        model_predictions = {"xgboost": round(risk_score, 2)}
+        return {"risk_level": "Düşük", "risk_score": 2.0, "method": "fallback", "reason": str(e), "model_type": "legacy_risk_fallback"}
+
+    if "xgboost" in models and "random_forest" not in models and "lightgbm" not in models:
+        risk_score = float(models["xgboost"].predict(X)[0])
+        method_name = "ml_xgboost"
     else:
-        rf_pred = models.get('random_forest') and models['random_forest'].predict(feature_vector)[0] or 2.0
-        xgb_pred = models.get('xgboost') and models['xgboost'].predict(feature_vector)[0] or 2.0
-        lgb_pred = models.get('lightgbm') and models['lightgbm'].predict(feature_vector)[0] or 2.0
-        risk_score = weights.get('random_forest', 0.4) * rf_pred + weights.get('xgboost', 0.35) * xgb_pred + weights.get('lightgbm', 0.25) * lgb_pred
-        model_predictions = {"random_forest": round(rf_pred, 2), "xgboost": round(xgb_pred, 2), "lightgbm": round(lgb_pred, 2)}
+        rf_pred = float(models.get("random_forest").predict(X)[0]) if models.get("random_forest") else 2.0
+        xgb_pred = float(models.get("xgboost").predict(X)[0]) if models.get("xgboost") else 2.0
+        lgb_pred = float(models.get("lightgbm").predict(X)[0]) if models.get("lightgbm") else 2.0
+        risk_score = weights.get("random_forest", 0.4) * rf_pred + weights.get("xgboost", 0.35) * xgb_pred + weights.get("lightgbm", 0.25) * lgb_pred
+        method_name = "ml_ensemble"
     risk_score = max(0, min(10, risk_score))
-    
-    # Risk seviyesi
     if risk_score >= 7.5:
         level = "Çok Yüksek"
     elif risk_score >= 5.5:
@@ -1112,13 +1292,12 @@ def predict_risk_with_ml(earthquakes, target_lat, target_lon):
         level = "Orta"
     else:
         level = "Düşük"
-    
     return {
         "risk_level": level,
         "risk_score": round(risk_score, 2),
-        "method": "ml_ensemble",
+        "method": method_name,
         "features": features,
-        "model_predictions": model_predictions
+        "model_type": "legacy_risk_fallback",
     }
 
 def detect_anomalies(earthquakes, target_lat, target_lon):
@@ -1153,25 +1332,21 @@ def detect_anomalies(earthquakes, target_lat, target_lon):
     if features.get('magnitude_trend', 0) > 0.5:
         anomaly_scores.append(0.4)
     
-    # 6. Isolation Forest ile anomali tespiti
+    # 6. Isolation Forest ile anomali tespiti (30 feature ile eğitilmiş model)
     try:
-        if os.path.exists(ANOMALY_DETECTION_MODEL_FILE):
-            with open(ANOMALY_DETECTION_MODEL_FILE, 'rb') as f:
-                isolation_model = pickle.load(f)
-            
-            feature_vector = np.array([[
-                features.get('count', 0),
-                features.get('max_magnitude', 0),
-                features.get('mean_magnitude', 0),
-                features.get('min_distance', 300),
-                features.get('activity_density', 0)
-            ]])
-            
+        from train_models import build_feature_vector_for_prediction
+        feature_vector = build_feature_vector_for_prediction(features)
+    except Exception:
+        feature_vector = None
+
+    isolation_model = load_latest_anomaly_model()
+    if isolation_model is not None and feature_vector is not None:
+        try:
             anomaly_pred = isolation_model.predict(feature_vector)[0]
-            if anomaly_pred == -1:  # Anomali
+            if anomaly_pred == -1:
                 anomaly_scores.append(0.6)
-    except:
-        pass
+        except Exception:
+            pass
     
     total_anomaly_score = min(1.0, sum(anomaly_scores))
     anomaly_detected = total_anomaly_score > 0.5
@@ -2123,28 +2298,26 @@ def dataset_count():
 
 @app.route('/api/ml-metrics', methods=['GET'])
 def ml_metrics():
-    """ ML model metrikleri ve eğitim bilgisi (feature_importance.json). """
+    """
+    Geri uyumluluk için forecast metriklerini eski endpoint adıyla da döndür.
+    """
     try:
-        fi_path = os.path.join('models', 'feature_importance.json')
-        if not os.path.exists(fi_path):
+        forecast_path = os.path.join(MODEL_DIR, "forecast_latest.pkl")
+        if not os.path.exists(forecast_path):
             return jsonify({
                 "status": "no_model",
-                "message": "Henüz model eğitilmemiş.",
-                "metrics": None,
-                "feature_importance": None,
-                "trained_at": None,
-                "version": None
+                "message": "Forecast modeli bulunamadı.",
             })
-        with open(fi_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        with open(forecast_path, "rb") as f:
+            model_data = pickle.load(f)
         return jsonify({
             "status": "success",
-            "version": data.get('version'),
-            "trained_at": data.get('trained_at'),
-            "metrics": data.get('metrics', {}),
-            "feature_importance": data.get('feature_importance', {})
+            "version": "forecast_latest",
+            "trained_at": model_data.get("trained_at"),
+            "metrics": model_data.get("metrics", {}),
         })
     except Exception as e:
+        logger.exception("[API] ml-metrics hatası: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/dataset-info', methods=['GET'])
@@ -2249,8 +2422,8 @@ def dataset_info():
                 "total_cities": len(cities)
             },
             "model_status": {
-                "model_exists": os.path.exists(RISK_PREDICTION_MODEL_FILE),
-                "model_file_size_kb": round(os.path.getsize(RISK_PREDICTION_MODEL_FILE) / 1024, 2) if os.path.exists(RISK_PREDICTION_MODEL_FILE) else 0
+                "model_exists": _risk_model_file_exists(),
+                "model_file_size_kb": _get_risk_model_size_kb()
             }
         })
     except Exception as e:
@@ -2370,34 +2543,44 @@ def turkey_early_warning():
         }), 500
 
 
+# LEGACY: yalnızca forecast endpoint başarısızsa fallback amaçlı kullanılmalı
 @app.route('/api/prediction-map', methods=['GET'])
 def prediction_map():
-    """İller için heuristik tahmin/risk noktaları üretir (3. harita). Hata durumunda 502 yerine JSON döner."""
+    """Legacy risk haritası: son 48 saatlik aktiviteye dayalı heuristik il risk görünümü."""
     try:
         earthquakes = fetch_earthquake_data_with_retry(KANDILLI_API)
-        warnings = turkey_early_warning_system(earthquakes or [])
 
         prediction_points = []
-        for city_name, city_data in warnings.items():
-            coords = TURKEY_CITIES.get(city_name)
-            if not coords:
-                continue
-            probability = min(100, int((city_data.get("alert_score", 0) or 0) * 100))
+        for city, coords in TURKEY_CITIES.items():
+            risk, anomaly, count, features = calculate_city_risk(
+                coords["lat"],
+                coords["lon"],
+                earthquakes,
+            )
+            risk_percent = min(100, int(risk * 100))
+            level = "Normal"
+            if risk_percent >= 70:
+                level = "Yüksek"
+            elif risk_percent >= 40:
+                level = "Orta"
+
             prediction_points.append({
-                "city": city_name,
+                "city": city,
                 "lat": coords["lat"],
                 "lon": coords["lon"],
-                "probability": probability,
-                "alert_level": city_data.get("alert_level", "Normal"),
-                "predicted_magnitude": city_data.get("predicted_magnitude"),
-                "time_to_event": city_data.get("time_to_event"),
-                "message": city_data.get("message", ""),
-                "recent_earthquakes": city_data.get("recent_earthquakes", 0),
-                "anomaly_detected": city_data.get("anomaly_detected", False),
+                "risk_percent": risk_percent,
+                "probability": risk_percent,  # geri uyumluluk
+                "alert_level": level,
+                "analysis_window": "Son 48 saat",
+                "recent_earthquakes": count,
+                "anomaly_detected": anomaly,
+                "max_magnitude": round(features.get("max_magnitude", 0), 2) if features else 0,
+                "min_distance": round(features.get("min_distance", 300), 1) if features else 300,
             })
 
         return jsonify({
             "status": "success",
+            "model_type": "legacy_heuristic_risk",
             "prediction_points": prediction_points,
             "generated_at": datetime.utcnow().isoformat() + "Z",
         })
@@ -2408,6 +2591,69 @@ def prediction_map():
             "message": str(e),
             "prediction_points": [],
         }), 500
+
+
+@app.route("/api/forecast-map", methods=["GET"])
+def forecast_map():
+    """Olasılıksal forecast modeli ile il bazlı tahmin haritası (24h/72h/7g)."""
+    try:
+        earthquake_data = fetch_earthquake_data_with_retry(KANDILLI_API, max_retries=2, timeout=60)
+        if not earthquake_data:
+            earthquake_data = []
+
+        points = []
+        for city, data in TURKEY_CITIES.items():
+            lat = data["lat"]
+            lon = data["lon"]
+            pred = predict_risk_with_ml(earthquake_data, lat, lon)
+            anomaly = detect_anomalies(earthquake_data, lat, lon)
+            points.append({
+                "city": city,
+                "lat": lat,
+                "lon": lon,
+                "risk_score": pred.get("risk_score", 0),
+                "risk_level": pred.get("risk_level", "Düşük"),
+                "prob_m4p_next_24h": pred.get("prob_m4p_next_24h", 0),
+                "prob_m5p_next_72h": pred.get("prob_m5p_next_72h", 0),
+                "expected_eq_count_next_24h": pred.get("expected_eq_count_next_24h", 0),
+                "expected_max_mag_next_7d": pred.get("expected_max_mag_next_7d", 0),
+                "anomaly_detected": anomaly.get("anomaly_detected", False),
+                "anomaly_score": anomaly.get("anomaly_score", 0),
+                "model_type": pred.get("model_type", "probabilistic_forecast"),
+            })
+
+        return jsonify({
+            "status": "success",
+            "model_type": "probabilistic_forecast",
+            "analysis_window": "past_48h",
+            "forecast_horizons": ["24h", "72h", "7d"],
+            "points": points,
+        })
+    except Exception as e:
+        logger.exception("[API] forecast-map hatası: %s", e)
+        return jsonify({"status": "error", "message": str(e), "points": []}), 500
+
+
+@app.route("/api/forecast-metrics", methods=["GET"])
+def forecast_metrics():
+    """Forecast model metrikleri (ROC-AUC, Brier, RMSE) ve trained_at."""
+    try:
+        forecast_path = os.path.join(MODEL_DIR, "forecast_latest.pkl")
+        if not os.path.exists(forecast_path):
+            return jsonify({
+                "status": "no_model",
+                "message": "Forecast modeli bulunamadı.",
+            })
+        with open(forecast_path, "rb") as f:
+            model_data = pickle.load(f)
+        return jsonify({
+            "status": "success",
+            "metrics": model_data.get("metrics", {}),
+            "trained_at": model_data.get("trained_at"),
+            "model_type": "probabilistic_forecast",
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route('/api/city-damage-analysis', methods=['GET'])
@@ -2947,7 +3193,7 @@ def chatbot():
                             if risk_scores:
                                 risk_stats_text = f'\n📈 Risk Skoru: Min={min(risk_scores):.1f}, Max={max(risk_scores):.1f}, Ortalama={sum(risk_scores)/len(risk_scores):.1f}'
                             
-                            model_status = '✅ Eğitilmiş' if os.path.exists(RISK_PREDICTION_MODEL_FILE) else '⚠️ Henüz eğitilmemiş'
+                            model_status = '✅ Eğitilmiş' if _risk_model_file_exists() else '⚠️ Henüz eğitilmemiş'
                             
                             response_text = f'📊 EĞİTİM VERİ SETİ BİLGİLERİ:\n\n📊 Toplam Kayıt: {total_records:,}\n🏙️ Şehir Sayısı: {len(cities)}\n💾 Dosya Boyutu: {file_size_kb} KB{date_range_text}{last_update_text}{risk_stats_text}\n🤖 Model Durumu: {model_status}\n\n💡 Otomatik Eğitim: Model her 24 saatte bir veya veri seti 100, 500, 1000, 2000, 5000, 10000 kayıt eşiklerine ulaştığında otomatik olarak eğitilir.'
                 except Exception as e:
@@ -3760,29 +4006,32 @@ def check_for_big_earthquakes():
                             if not send_success:
                                 print(f"[ERROR] Büyük deprem bildirimi gönderilemedi ({number}): {send_error}")
 
-# Arka plan iş parçacıklarını başlat
+# Arka plan servisleri - sadece __main__ veya ENABLE_BACKGROUND_THREADS ile başlat (Gunicorn/Render güvenliği)
+_background_threads_started = False
 
-# 1. Büyük deprem kontrolü (30 saniyede bir)
-alert_thread = Thread(target=check_for_big_earthquakes)
-alert_thread.daemon = True 
-alert_thread.start()
 
-# 2. Sürekli veri toplama (30 dakikada bir) + Otomatik model eğitimi
-data_collection_thread = Thread(target=collect_training_data_continuously)
-data_collection_thread.daemon = True
-data_collection_thread.start()
-print("[SISTEM] Sürekli veri toplama sistemi başlatıldı (her 30 dakikada bir).")
+def start_background_services():
+    """Arka plan thread'lerini başlatır. Import anında değil, sadece bu fonksiyon çağrıldığında."""
+    global _background_threads_started
+    if _background_threads_started:
+        return
+    _background_threads_started = True
 
-# 3. ML modellerini arka planda ön yükle (predict-risk ilk tıklamada hazır olsun)
+    alert_thread = Thread(target=check_for_big_earthquakes, daemon=True)
+    alert_thread.start()
+
+    data_collection_thread = Thread(target=collect_training_data_continuously, daemon=True)
+    data_collection_thread.start()
+
+    ml_preload_thread = Thread(target=_delayed_ml_preload, daemon=True)
+    ml_preload_thread.start()
+
+    print("[SISTEM] Arka plan servisleri başlatıldı.")
+
+
 def _delayed_ml_preload():
-    time.sleep(15)  # Sunucu ayağa kalktıktan 15 sn sonra
+    time.sleep(15)
     _load_ml_models_into_cache()
-ml_preload_thread = Thread(target=_delayed_ml_preload)
-ml_preload_thread.daemon = True
-ml_preload_thread.start()
-print("[SISTEM] Otomatik model eğitimi aktif:")
-print("  - Her 24 saatte bir otomatik eğitim")
-print("  - Veri seti 100, 500, 1000, 2000, 5000, 10000 kayıt eşiklerine ulaştığında otomatik eğitim")
 
 
 def _load_ml_models_into_cache():
@@ -3815,8 +4064,9 @@ def _load_ml_models_into_cache():
 
 
 if __name__ == '__main__':
+    if os.environ.get("ENABLE_BACKGROUND_THREADS", "true").lower() == "true":
+        start_background_services()
     port = int(os.environ.get('PORT', 5000))
-    # Model yoksa ilk kurulumda bir kez eğit
     try:
         from train_models import get_latest_model_path, train_all
         if get_latest_model_path() is None:

@@ -326,6 +326,18 @@ def get_training_records(filepath: str = DEFAULT_DATASET_FILE,
     return training
 
 
+def get_forecast_records_from_dataset(filepath: str = DEFAULT_DATASET_FILE) -> List[Dict]:
+    """Forecast eğitimi için y_m4_24h, y_m5_72h vb. hedefleri içeren kayıtları döndürür."""
+    if not os.path.exists(filepath):
+        return []
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+    return [r for r in data if isinstance(r, dict) and "features" in r and "y_m4_24h" in r]
+
+
 def get_dataset_stats(filepath: str = DEFAULT_DATASET_FILE) -> Dict[str, Any]:
     """Veri seti istatistiklerini döndürür."""
     data = load_dataset(filepath)

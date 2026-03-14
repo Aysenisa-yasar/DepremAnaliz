@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# LEGACY TRAINING FILE
+# Yeni forecast pipeline için: python forecast/trainer.py
 """
 train_models.py
 ML model eğitimi modülü.
@@ -24,12 +26,14 @@ from typing import List, Dict, Any, Optional, Tuple
 
 # sklearn
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, f1_score, mean_squared_error
+from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, roc_auc_score, average_precision_score, brier_score_loss
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import IsolationForest
+from sklearn.calibration import CalibratedClassifierCV
 
 # XGBoost
 import xgboost as xgb
+from xgboost import XGBClassifier, XGBRegressor
 
 # Proje modülleri
 from dataset_manager import get_training_records, DEFAULT_DATASET_FILE
@@ -45,7 +49,8 @@ FEATURE_NAMES = [
     'magnitude_distance_ratio', 'magnitude_trend', 'neighbor_activity',
     'cluster_count', 'in_cluster', 'nearest_cluster_distance',
     'cluster_density', 'max_cluster_size', 'nearest_cluster_max_mag',
-    'etas_score', 'etas_max_influence', 'etas_event_count'
+    'etas_score', 'etas_max_influence', 'etas_event_count',
+    'recency_weighted_energy', 'b_value_proxy', 'swarm_intensity',
 ]
 MIN_TRAINING_SAMPLES = 50
 
@@ -82,7 +87,10 @@ def build_feature_vector_for_prediction(features: Dict) -> np.ndarray:
         features.get('nearest_cluster_max_mag', 0),
         features.get('etas_score', 0),
         features.get('etas_max_influence', 0),
-        features.get('etas_event_count', 0)
+        features.get('etas_event_count', 0),
+        features.get('recency_weighted_energy', 0),
+        features.get('b_value_proxy', 1.0),
+        features.get('swarm_intensity', 0),
     ]
     X = np.array([base], dtype=np.float64)
     try:
@@ -126,7 +134,10 @@ def _build_feature_vector(record: Dict) -> Optional[List[float]]:
         features.get('nearest_cluster_max_mag', 0),
         features.get('etas_score', 0),
         features.get('etas_max_influence', 0),
-        features.get('etas_event_count', 0)
+        features.get('etas_event_count', 0),
+        features.get('recency_weighted_energy', 0),
+        features.get('b_value_proxy', 1.0),
+        features.get('swarm_intensity', 0),
     ]
     return vector
 
@@ -451,8 +462,208 @@ def train_and_compare_architectures(dataset_path: str = DEFAULT_DATASET_FILE) ->
     return results
 
 
+# --- Gerçek olasılıksal forecast pipeline (geleceğe dönük hedefler) ---
+
+def build_feature_matrix_from_forecast_records(records: List[Dict]) -> Tuple:
+    """Forecast kayıtlarından X ve hedef vektörlerini üretir."""
+    X_list = []
+    y_m4_24h = []
+    y_m5_72h = []
+    y_count_24h = []
+    y_maxmag_7d = []
+    timestamps = []
+
+    for r in records:
+        features = r.get("features", {})
+        vec = build_feature_vector_for_prediction(features)
+        if vec.ndim == 2:
+            vec = vec[0]
+        X_list.append(vec)
+        y_m4_24h.append(r["y_m4_24h"])
+        y_m5_72h.append(r["y_m5_72h"])
+        y_count_24h.append(r["y_count_24h"])
+        y_maxmag_7d.append(r["y_maxmag_7d"])
+        timestamps.append(r["timestamp"])
+
+    X = np.array(X_list, dtype=np.float64)
+    return (
+        np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0),
+        np.array(y_m4_24h),
+        np.array(y_m5_72h),
+        np.array(y_count_24h, dtype=np.float64),
+        np.array(y_maxmag_7d, dtype=np.float64),
+        np.array(timestamps, dtype=np.float64),
+    )
+
+
+def time_ordered_split(X, y1, y2, y3, y4, timestamps, test_ratio=0.2):
+    """Zaman sıralı train/test split (leakage önleme)."""
+    order = np.argsort(timestamps)
+    X = X[order]
+    y1 = y1[order]
+    y2 = y2[order]
+    y3 = y3[order]
+    y4 = y4[order]
+    timestamps = timestamps[order]
+    split_idx = int(len(X) * (1 - test_ratio))
+    return (
+        X[:split_idx], X[split_idx:],
+        y1[:split_idx], y1[split_idx:],
+        y2[:split_idx], y2[split_idx:],
+        y3[:split_idx], y3[split_idx:],
+        y4[:split_idx], y4[split_idx:],
+    )
+
+
+def train_forecast_models_from_earthquakes(earthquakes: List[Dict]) -> Dict:
+    """
+    Geleceğe dönük hedeflerle forecast modelleri eğitir.
+    Döner: clf_m4_24h, clf_m5_72h, reg_count_24h, reg_maxmag_7d, metrics.
+    """
+    from earthquake_features import create_forecast_training_records
+
+    records = create_forecast_training_records(earthquakes, time_window_hours=48)
+    if not records:
+        raise ValueError("Forecast eğitimi için kayıt üretilemedi")
+
+    X, y_m4_24h, y_m5_72h, y_count_24h, y_maxmag_7d, timestamps = build_feature_matrix_from_forecast_records(records)
+
+    (X_train, X_test, y1_train, y1_test, y2_train, y2_test, y3_train, y3_test, y4_train, y4_test) = time_ordered_split(
+        X, y_m4_24h, y_m5_72h, y_count_24h, y_maxmag_7d, timestamps, test_ratio=0.2
+    )
+
+    pos1 = max(1, int(np.sum(y1_train == 1)))
+    neg1 = max(1, int(np.sum(y1_train == 0)))
+    scale_pos_weight_m4 = neg1 / pos1
+    pos2 = max(1, int(np.sum(y2_train == 1)))
+    neg2 = max(1, int(np.sum(y2_train == 0)))
+    scale_pos_weight_m5 = neg2 / pos2
+    print(f"  [forecast] scale_pos_weight M4: {scale_pos_weight_m4:.2f}")
+    print(f"  [forecast] scale_pos_weight M5: {scale_pos_weight_m5:.2f}")
+
+    import time as _time
+    t0 = _time.time()
+    print("  [forecast] Model eğitimi başlıyor (M4 24h, M5 72h, count, maxmag)...")
+
+    clf_m4_base = XGBClassifier(
+        n_estimators=250,
+        max_depth=5,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        eval_metric="logloss",
+        scale_pos_weight=scale_pos_weight_m4,
+        reg_lambda=1.0,
+        random_state=42,
+    )
+    clf_m5_base = XGBClassifier(
+        n_estimators=250,
+        max_depth=5,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        eval_metric="logloss",
+        scale_pos_weight=scale_pos_weight_m5,
+        reg_lambda=1.0,
+        random_state=42,
+    )
+
+    clf_m4 = CalibratedClassifierCV(clf_m4_base, method="sigmoid", cv=3)
+    clf_m5 = CalibratedClassifierCV(clf_m5_base, method="sigmoid", cv=3)
+
+    reg_count = XGBRegressor(
+        n_estimators=300,
+        max_depth=5,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        random_state=42,
+    )
+    reg_maxmag = XGBRegressor(
+        n_estimators=300,
+        max_depth=5,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        random_state=42,
+    )
+
+    t1 = _time.time()
+    clf_m4.fit(X_train, y1_train)
+    print(f"  [forecast] clf_m4_24h eğitildi. Geçen: {int(_time.time() - t1)} sn")
+    t1 = _time.time()
+    clf_m5.fit(X_train, y2_train)
+    print(f"  [forecast] clf_m5_72h eğitildi. Geçen: {int(_time.time() - t1)} sn")
+    t1 = _time.time()
+    reg_count.fit(X_train, y3_train)
+    print(f"  [forecast] reg_count_24h eğitildi. Geçen: {int(_time.time() - t1)} sn")
+    t1 = _time.time()
+    reg_maxmag.fit(X_train, y4_train)
+    print(f"  [forecast] reg_maxmag_7d eğitildi. Geçen: {int(_time.time() - t1)} sn")
+    print(f"  [forecast] Tüm modeller bitti. Toplam model eğitim süresi: {int(_time.time() - t0)} sn")
+
+    p1 = clf_m4.predict_proba(X_test)[:, 1]
+    p2 = clf_m5.predict_proba(X_test)[:, 1]
+    pred_count = reg_count.predict(X_test)
+    pred_maxmag = reg_maxmag.predict(X_test)
+
+    metrics = {
+        "m4_24h": {
+            "roc_auc": float(roc_auc_score(y1_test, p1)) if len(np.unique(y1_test)) > 1 else None,
+            "pr_auc": float(average_precision_score(y1_test, p1)),
+            "brier": float(brier_score_loss(y1_test, p1)),
+        },
+        "m5_72h": {
+            "roc_auc": float(roc_auc_score(y2_test, p2)) if len(np.unique(y2_test)) > 1 else None,
+            "pr_auc": float(average_precision_score(y2_test, p2)),
+            "brier": float(brier_score_loss(y2_test, p2)),
+        },
+        "count_24h": {"rmse": float(np.sqrt(mean_squared_error(y3_test, pred_count)))},
+        "maxmag_7d": {"rmse": float(np.sqrt(mean_squared_error(y4_test, pred_maxmag)))},
+    }
+
+    return {
+        "clf_m4_24h": clf_m4,
+        "clf_m5_72h": clf_m5,
+        "reg_count_24h": reg_count,
+        "reg_maxmag_7d": reg_maxmag,
+        "metrics": metrics,
+        "trained_at": datetime.utcnow().isoformat() + "Z",
+        "feature_names": FEATURE_NAMES.copy(),
+        "model_type": "probabilistic_forecast",
+    }
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == '--architectures':
+    if len(sys.argv) > 1 and sys.argv[1] == "--architectures":
         train_and_compare_architectures()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--forecast":
+        import time as _t
+        from dataset_manager import load_dataset, get_raw_earthquakes, DEFAULT_DATASET_FILE
+        data = load_dataset(DEFAULT_DATASET_FILE)
+        raw = get_raw_earthquakes(data)
+        if not raw:
+            print("Forecast eğitimi için ham deprem verisi yok. earthquake_history.json dolu olmalı.")
+            sys.exit(1)
+        print("Forecast modelleri eğitiliyor (zaman bazlı split, calibrated classifier)...")
+        total_start = _t.time()
+        result = train_forecast_models_from_earthquakes(raw)
+        path = os.path.join(MODEL_DIR, "forecast_latest.pkl")
+        with open(path, "wb") as f:
+            pickle.dump(result, f)
+        total_elapsed = _t.time() - total_start
+        print("[forecast] Eğitim tamamlandı.")
+        print("Forecast model kaydedildi:", path)
+        print(f"  Toplam süre: {int(total_elapsed)} sn ({total_elapsed / 60:.1f} dk)")
+        metrics = result.get("metrics") or {}
+        m4 = metrics.get("m4_24h") or {}
+        m5 = metrics.get("m5_72h") or {}
+        c24 = metrics.get("count_24h") or {}
+        m7 = metrics.get("maxmag_7d") or {}
+        print(f"[forecast] M4 24h ROC-AUC: {m4.get('roc_auc')}")
+        print(f"[forecast] M5 72h ROC-AUC: {m5.get('roc_auc')}")
+        print(f"[forecast] 24h Count RMSE: {c24.get('rmse')}")
+        print(f"[forecast] 7g MaxMag RMSE: {m7.get('rmse')}")
     else:
+        print("Legacy eğitim modu çalışıyor...")
         train_all()

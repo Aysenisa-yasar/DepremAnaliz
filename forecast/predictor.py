@@ -1,12 +1,18 @@
-# forecast/predictor.py - Hibrit tahmin (ML + ETAS-benzeri), dict döner, SHAP opsiyonel
 import os
 import pickle
+
 import numpy as np
 
 from config import FORECAST_MODEL
-from forecast.features import extract_features
+from forecast.bvalue import compute_b_value
+from forecast.clustering import detect_clusters
 from forecast.etas_like import etas_like_score
 from forecast.explain import explain_prediction
+from forecast.features import extract_features
+from forecast.gnn.predict import predict_gnn
+from forecast.lstm_model import predict_lstm_sequence
+
+MODEL_TYPE = "forecast_hybrid_v3_timeseriescv"
 
 FEATURE_ORDER = [
     "count",
@@ -41,23 +47,124 @@ def load_model():
         return None
 
 
-def predict(
+def _sorted_events(events: list) -> list:
+    return sorted(
+        [event for event in events if (event.get("timestamp") or 0) > 0],
+        key=lambda event: float(event.get("timestamp") or 0),
+    )
+
+
+def _clamp01(value: float) -> float:
+    return float(min(max(value, 0.0), 1.0))
+
+
+def _build_signal_bundle(events: list, lat: float, lon: float) -> dict:
+    recent_events = _sorted_events(events)
+    cluster_events = recent_events[-200:] if len(recent_events) > 200 else recent_events
+    bvalue_events = recent_events[-500:] if len(recent_events) > 500 else recent_events
+    lstm_events = recent_events[-50:] if len(recent_events) > 50 else recent_events
+    gnn_events = recent_events[-100:] if len(recent_events) > 100 else recent_events
+
+    clusters = detect_clusters(cluster_events)
+    cluster_score = _clamp01(len(clusters) / 5.0)
+    b_value = compute_b_value(bvalue_events)
+    b_risk = _clamp01(1.2 - b_value)
+    lstm_prob = _clamp01(predict_lstm_sequence(lstm_events, lat, lon) if recent_events else 0.0)
+    gnn_prob = _clamp01(predict_gnn(gnn_events))
+
+    return {
+        "cluster_score": float(cluster_score),
+        "b_value": float(b_value),
+        "b_risk": float(b_risk),
+        "lstm_probability": float(lstm_prob),
+        "gnn_probability": float(gnn_prob),
+    }
+
+
+def _dynamic_weights(features: dict) -> dict:
+    weights = {
+        "ml": 0.40,
+        "etas": 0.20,
+        "cluster": 0.10,
+        "b": 0.10,
+        "lstm": 0.10,
+        "gnn": 0.15,
+    }
+
+    count = int(features.get("count", 0) or 0)
+    max_mag = float(features.get("max_mag", 0) or 0)
+
+    if count < 5:
+        weights["ml"] = 0.20
+        weights["etas"] = 0.30
+        weights["cluster"] = 0.20
+        weights["b"] = 0.10
+        weights["lstm"] = 0.05
+        weights["gnn"] = 0.15
+    elif max_mag > 4.0:
+        weights["ml"] = 0.50
+        weights["etas"] = 0.20
+        weights["cluster"] = 0.10
+        weights["b"] = 0.08
+        weights["lstm"] = 0.05
+        weights["gnn"] = 0.07
+
+    total = sum(weights.values())
+    if total <= 0:
+        return weights
+
+    return {name: value / total for name, value in weights.items()}
+
+
+def _predict_auxiliary_targets(model_data: dict, X: np.ndarray) -> tuple[float, float]:
+    aux_models = model_data.get("aux_models", {}) if isinstance(model_data, dict) else {}
+
+    m5_prob = 0.0
+    m5_model = aux_models.get("m5_72h")
+    if m5_model is not None:
+        try:
+            m5_prob = float(m5_model.predict_proba(X)[0, 1])
+        except Exception:
+            m5_prob = 0.0
+
+    max_mag_7d = 0.0
+    max_mag_model = aux_models.get("max_mag_7d")
+    if max_mag_model is not None:
+        try:
+            max_mag_7d = float(max_mag_model.predict(X)[0])
+        except Exception:
+            max_mag_7d = 0.0
+
+    return float(m5_prob), float(max_mag_7d)
+
+
+def predict_with_model_data(
+    model_data: dict | None,
     events: list,
     lat: float,
     lon: float,
     time_window_hours: int = 48,
     explain: bool = False,
 ) -> dict:
-    model_data = load_model()
     feats = extract_features(events, lat, lon, time_window_hours=time_window_hours)
-    X = np.array([[feats.get(k, 0) for k in FEATURE_ORDER]], dtype=np.float64)
+    X = np.array([[feats.get(key, 0) for key in FEATURE_ORDER]], dtype=np.float64)
+    signals = _build_signal_bundle(events, lat, lon)
+    etas_prob = float(etas_like_score(feats))
 
     if not model_data or "model" not in model_data:
-        etas_prob = float(etas_like_score(feats))
+        fallback_prob = _clamp01(0.6 * etas_prob + 0.4 * signals["cluster_score"])
         return {
-            "probability": etas_prob,
+            "probability": fallback_prob,
             "ml_probability": 0.0,
             "etas_probability": etas_prob,
+            "lstm_probability": float(signals["lstm_probability"]),
+            "cluster_score": float(signals["cluster_score"]),
+            "b_value": float(signals["b_value"]),
+            "b_risk": float(signals["b_risk"]),
+            "gnn_probability": float(signals["gnn_probability"]),
+            "m5_72h_probability": 0.0,
+            "max_mag_7d_prediction": 0.0,
+            "ensemble_weights": _dynamic_weights(feats),
             "features": feats,
             "top_features": [],
             "model_type": "no_forecast_model",
@@ -73,16 +180,34 @@ def predict(
         }
 
     ml_prob = float(model_data["model"].predict_proba(X)[0, 1])
-    etas_prob = float(etas_like_score(feats))
-    final_prob = 0.75 * ml_prob + 0.25 * etas_prob
+    m5_prob, max_mag_7d = _predict_auxiliary_targets(model_data, X)
+    weights = _dynamic_weights(feats)
+
+    final_prob = (
+        weights["ml"] * ml_prob
+        + weights["etas"] * etas_prob
+        + weights["cluster"] * signals["cluster_score"]
+        + weights["b"] * signals["b_risk"]
+        + weights["lstm"] * signals["lstm_probability"]
+        + weights["gnn"] * signals["gnn_probability"]
+    )
+    final_prob = _clamp01(final_prob)
 
     result = {
         "probability": float(final_prob),
         "ml_probability": float(ml_prob),
         "etas_probability": float(etas_prob),
+        "lstm_probability": float(signals["lstm_probability"]),
+        "cluster_score": float(signals["cluster_score"]),
+        "b_value": float(signals["b_value"]),
+        "b_risk": float(signals["b_risk"]),
+        "gnn_probability": float(signals["gnn_probability"]),
+        "m5_72h_probability": float(_clamp01(m5_prob)),
+        "max_mag_7d_prediction": float(max_mag_7d),
+        "ensemble_weights": weights,
         "features": feats,
         "top_features": [],
-        "model_type": "forecast_hybrid_v2_faultaware",
+        "model_type": model_data.get("model_type", MODEL_TYPE),
         "fault_distance": float(feats.get("fault_distance", 999.0)),
         "fault_proximity_score": float(feats.get("fault_proximity_score", 0.0)),
         "stress_transfer": float(feats.get("stress_transfer", 0.0)),
@@ -103,3 +228,20 @@ def predict(
             result["top_features"] = []
 
     return result
+
+
+def predict(
+    events: list,
+    lat: float,
+    lon: float,
+    time_window_hours: int = 48,
+    explain: bool = False,
+) -> dict:
+    return predict_with_model_data(
+        load_model(),
+        events,
+        lat,
+        lon,
+        time_window_hours=time_window_hours,
+        explain=explain,
+    )

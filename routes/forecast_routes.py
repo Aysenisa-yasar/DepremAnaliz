@@ -1,12 +1,13 @@
-# routes/forecast_routes.py - Forecast harita + grid API (explain, ETAS, çok şehir)
 from flask import Blueprint, jsonify
 
+from services.anomaly_service import anomaly_score
 from services.data_service import load_events
 from services.forecast_service import forecast_city
-from services.anomaly_service import anomaly_score
 from services.grid_forecast_service import forecast_grid
 
 forecast_bp = Blueprint("forecast", __name__)
+
+MODEL_TYPE = "forecast_hybrid_v3_timeseriescv"
 
 CITIES = {
     "İstanbul": {"lat": 41.0082, "lon": 28.9784},
@@ -24,6 +25,16 @@ CITIES = {
     "Malatya": {"lat": 38.3552, "lon": 38.3095},
     "Kahramanmaraş": {"lat": 37.5858, "lon": 36.9371},
     "Denizli": {"lat": 37.7765, "lon": 29.0864},
+    "Şanlıurfa": {"lat": 37.1674, "lon": 38.7955},
+    "Eskişehir": {"lat": 39.7767, "lon": 30.5206},
+    "Diyarbakır": {"lat": 37.9144, "lon": 40.2306},
+    "Samsun": {"lat": 41.2867, "lon": 36.3300},
+    "Elazığ": {"lat": 38.6748, "lon": 39.2225},
+    "Hatay": {"lat": 36.4018, "lon": 36.3498},
+    "Manisa": {"lat": 38.6191, "lon": 27.4289},
+    "Trabzon": {"lat": 41.0015, "lon": 39.7178},
+    "Muğla": {"lat": 37.2153, "lon": 28.3636},
+    "Mersin": {"lat": 36.8000, "lon": 34.6333},
 }
 
 
@@ -45,11 +56,19 @@ def forecast_map_v2():
                 "probability": pred["probability"],
                 "ml_probability": pred["ml_probability"],
                 "etas_probability": pred["etas_probability"],
+                "lstm_probability": pred.get("lstm_probability", 0.0),
+                "cluster_score": pred.get("cluster_score", 0.0),
+                "b_value": pred.get("b_value", 1.0),
+                "b_risk": pred.get("b_risk", 0.0),
+                "gnn_probability": pred.get("gnn_probability", 0.0),
+                "m5_72h_probability": pred.get("m5_72h_probability", 0.0),
+                "max_mag_7d_prediction": pred.get("max_mag_7d_prediction", 0.0),
                 "risk_level": risk_level,
                 "anomaly_score": round(ano, 2),
                 "anomaly_detected": ano > 0.5,
                 "top_features": pred.get("top_features", []),
-                "model_type": pred.get("model_type", "forecast_hybrid_v2_faultaware"),
+                "ensemble_weights": pred.get("ensemble_weights", {}),
+                "model_type": pred.get("model_type", MODEL_TYPE),
                 "fault_distance": pred.get("fault_distance", 999.0),
                 "fault_proximity_score": pred.get("fault_proximity_score", 0.0),
                 "stress_transfer": pred.get("stress_transfer", 0.0),
@@ -62,7 +81,7 @@ def forecast_map_v2():
             })
         return jsonify({
             "status": "success",
-            "model_type": "forecast_hybrid_v1",
+            "model_type": MODEL_TYPE,
             "analysis_window": "past_48h",
             "points": points,
         })
@@ -77,7 +96,7 @@ def forecast_grid_v2():
         points = forecast_grid(events, step=0.5)
         return jsonify({
             "status": "success",
-            "model_type": "forecast_hybrid_v2_faultaware",
+            "model_type": MODEL_TYPE,
             "grid_step": 0.5,
             "points": points,
         })

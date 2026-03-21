@@ -33,6 +33,7 @@ node_modules/
 ml_models/*.pkl
 ml_models/*.joblib
 models/*.pkl
+models/*.pt
 
 # Data files
 earthquake_history.json

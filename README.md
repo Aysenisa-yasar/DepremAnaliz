@@ -1,212 +1,112 @@
-# 🚀 DepremAnaliz — AI Destekli Deprem Risk Analizi
+# DepremAnaliz
 
-Türkiye için makine öğrenmesi destekli deprem izleme ve **kısa vadeli sismik risk tahmini** sistemi.
+Hybrid spatio-temporal earthquake forecasting prototype for Turkey.
 
-> ⚠️ **Önemli:** Bu sistem **deprem tahmini** yapmaz. Depremler bilimsel olarak saat/gün seviyesinde tahmin edilemez. Sistem, mevcut deprem aktivitesine dayalı **risk sınıflandırması** sunar.
+This project combines machine learning, ETAS-like scoring, clustering, b-value analysis, sequence heuristics, graph neural networks, explainability, and grid-based forecasting into a single research-oriented pipeline.
 
-## ✨ Özellikler
+## What It Does
 
-- 🤖 **Gelişmiş ML Modelleri**: XGBoost + Random Forest + LightGBM Ensemble
-- 📊 **Sismik Risk Tahmini**: Kısa vadeli aktivite bazlı risk skoru (0–10)
-- 📊 **Feature Engineering**: 27 özellik (ETAS, cluster, komşu aktivite dahil)
-- 🔍 **Anomali Tespiti**: Isolation Forest ile olağandışı aktivite tespiti
-- 🏙️ **İl Bazında Hasar Tahmini**: 81 il için otomatik analiz
-- 📱 **WhatsApp Bildirimleri**: Twilio entegrasyonu ile anında uyarı
-- 🗺️ **Görselleştirme**: Aktif fay hatları ve risk bölgeleri haritası
-- 🔄 **Otomatik Güncelleme**: Her 30 dakikada veri, her 24 saatte model eğitimi
+- Fuses seismic data from Kandilli, USGS, and optional AFAD sources
+- Builds short-horizon earthquake risk forecasts over cities and geographic grid cells
+- Uses a hybrid ensemble of XGBoost, ETAS-like scoring, cluster analysis, b-value risk, LSTM-style sequence signal, and optional GNN signal
+- Computes SHAP-based local explanations and global feature importance
+- Stores rolling evaluation, calibration, and backtest summaries for model inspection
 
----
+## Current Forecast Stack
 
-## 🏗️ Sistem Mimarisi
+- Primary target: `m4_24h`
+- Auxiliary targets: `m5_72h`, `max_mag_7d`
+- Main model: calibrated XGBoost classifier
+- Auxiliary models: calibrated XGBoost classifier + XGBoost regressor
+- Spatial model: PyTorch Geometric based GNN
+- Explainability: SHAP
 
-```
-Veri Kaynakları (USGS, Kandilli, EMSC)
-              ↓
-      Data Collector
-              ↓
-    Feature Engineering
-   (ETAS, cluster, 27 özellik)
-              ↓
-    Training Records
-   (~121k örnek)
-              ↓
-   XGBoost + IsolationForest
-              ↓
-    Risk Skoru (0–10)
-              ↓
-   API → Frontend / WhatsApp
-```
+## v2 API
 
----
+- `GET /api/v2/forecast-map`
+- `GET /api/v2/forecast-grid`
+- `GET /api/v2/forecast-metrics`
+- `GET /api/v2/feature-importance`
 
-## 📊 Dataset
+## Project Structure
 
-| Özellik | Değer |
-|---------|-------|
-| Ham deprem | ~26.000 |
-| Eğitim kaydı | ~121.000 (tarihsel genişletme) |
-| Zaman aralığı | 1990–2026 |
-| Kaynaklar | USGS, Kandilli, EMSC |
-
----
-
-## 🚀 Hızlı Başlangıç
-
-### Yerel Kurulum
-
-1. **Repository'yi klonlayın:**
-```bash
-git clone https://github.com/Aysenisa-yasar/DepremAnaliz.git
-cd DepremAnaliz
+```text
+forecast/                  core forecasting pipeline
+forecast/gnn/              graph dataset, model, trainer, predictor
+services/                  application service layer
+routes/                    Flask v2 routes
+static/                    frontend assets
+templates/                 frontend templates
+models/                    saved models
+data/                      local data assets including fault geometry
+app.py                     Flask app with legacy compatibility routes
 ```
 
-2. **Sanal ortam oluşturun:**
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
+## Installation
 
-3. **Bağımlılıkları yükleyin:**
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Ortam değişkenlerini ayarlayın:**
+Optional GNN dependencies:
+
 ```bash
-# Windows PowerShell
-$env:TWILIO_ACCOUNT_SID="your_account_sid"
-$env:TWILIO_AUTH_TOKEN="your_auth_token"
-$env:TWILIO_WHATSAPP_NUMBER="whatsapp:+14155238886"
+pip install torch torch-geometric
 ```
 
-5. **Veri toplama (opsiyonel, 26k+ deprem):**
+## Training
+
+Train the hybrid forecast model:
+
 ```bash
-python collect_large_dataset.py
+python forecast/trainer.py
 ```
 
-6. **Model eğitimi:**
+Train the optional GNN model:
+
 ```bash
-python train_models.py
+python forecast/gnn/trainer.py
 ```
 
-7. **Uygulamayı çalıştırın:**
+Run the application:
+
 ```bash
 python app.py
 ```
 
-8. **Frontend'i açın:**
-Tarayıcıda `index.html` dosyasını açın.
+## Forecast Outputs
 
-## 🌐 Render.com'da Deploy
+The saved forecast model includes:
 
-### 1. GitHub'a Yükleyin
+- Time-series cross-validation metrics
+- Calibration curve data
+- Rolling backtest summary
+- Global feature importance
+- Auxiliary target configuration
 
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/kullaniciadi/deprem-izleme-sistemi.git
-git push -u origin main
-```
+City and grid forecast responses include:
 
-### 2. Render.com'da Servis Oluşturun
+- Final probability
+- ML / ETAS / LSTM / cluster / b-risk / GNN components
+- `m5_72h_probability`
+- `max_mag_7d_prediction`
+- Fault proximity features
+- SHAP top features for city-level explainable forecasts
 
-1. **Render.com'a giriş yapın:** https://render.com
-2. **"New +"** butonuna tıklayın
-3. **"Web Service"** seçin
-4. **GitHub repository'nizi bağlayın**
-5. **Ayarları yapılandırın:**
-   - **Name:** `deprem-izleme-sistemi`
-   - **Environment:** `Python 3`
-   - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `gunicorn app:app`
+## Research Directions
 
-### 3. Ortam Değişkenlerini Ayarlayın
+Planned or partially implemented upgrades:
 
-Render.com dashboard'da **"Environment"** sekmesine gidin ve şunları ekleyin:
+- Real LSTM / GRU training instead of heuristic sequence scoring
+- Stronger spatio-temporal GNN with richer node and edge features
+- Calibration plots and benchmarking figures
+- Higher-resolution grid forecasting
+- Paper-ready evaluation reports
 
-```
-TWILIO_ACCOUNT_SID=your_account_sid
-TWILIO_AUTH_TOKEN=your_auth_token
-TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
-PORT=10000
-```
+## Important Note
 
-### 4. Deploy Edin
+This project is a research and engineering prototype. It does not provide deterministic earthquake prediction. Outputs should be interpreted as short-term probabilistic risk estimates, not official warnings.
 
-Render.com otomatik olarak deploy edecek. İlk deploy 5-10 dakika sürebilir.
+## License
 
-## 📁 Proje Yapısı
-
-```
-DepremAnaliz/
-├── app.py                    # Flask backend
-├── train_models.py           # ML eğitim pipeline
-├── earthquake_features.py    # Feature engineering (ETAS, cluster)
-├── collect_large_dataset.py # USGS 1990-2026 veri toplama
-├── dataset_manager.py       # Veri yönetimi, dedup
-├── ml_architectures.py      # Ensemble, LSTM, ETAS mimarileri
-├── models/                   # Eğitilmiş modeller
-├── requirements.txt
-└── README.md
-```
-
-## 🔧 Yapılandırma
-
-### Twilio Ayarları
-
-1. **Twilio hesabı oluşturun:** https://www.twilio.com
-2. **WhatsApp Sandbox'ı aktifleştirin**
-3. **Kimlik bilgilerini alın:**
-   - Account SID
-   - Auth Token
-   - WhatsApp Sandbox numarası
-4. **Ortam değişkenlerine ekleyin**
-
-Detaylı kurulum için: [TWILIO_HIZLI_KURULUM.md](TWILIO_HIZLI_KURULUM.md)
-
-## 📊 Model Performansı
-
-- **Ana Model:** XGBoost Regressor (risk skoru tahmini)
-- **Risk Sınıfı Accuracy:** ~0.72–0.73 (düşük / orta / yüksek / çok yüksek)
-- **Feature Sayısı:** 27 (ETAS, cluster, neighbor_activity dahil)
-- **Eğitim Verisi:** ~121.000 kayıt (tarihsel genişletme ile 26k depremden)
-- **Veri Kaynağı:** USGS 1990–2026 arşiv, Kandilli, EMSC
----
-
-## 🔄 Otomatik Veri & Eğitim
-
-```bash
-python scheduler.py
-```
-
-- **Her 30 dakika:** Kandilli, USGS, EMSC'den veri çekilir
-- **Her 24 saat:** Model güncel veriyle yeniden eğitilir
-
-## 🎯 API Endpoints
-
-- `GET /api/risk` - Risk analizi
-- `GET /api/fault-lines` - Fay hatları
-- `POST /api/predict-risk` - ML destekli risk tahmini
-- `GET /api/istanbul-early-warning` - İstanbul sismik risk analizi
-- `POST /api/anomaly-detection` - Anomali tespiti
-- `POST /api/city-damage-analysis` - İl bazında hasar analizi
-- `POST /api/set-alert` - WhatsApp bildirim ayarları
-- `POST /api/train-models` - Model eğitimi
-
-## 📝 Lisans
-
-Bu proje [MIT Lisansı](LICENSE) altında lisanslanmıştır. Eğitim ve araştırma amaçlıdır.
-
-## 🤝 Katkıda Bulunma
-
-Pull request'ler memnuniyetle karşılanır. Büyük değişiklikler için önce bir issue açın.
-
-## 📞 Destek
-
-Sorularınız için issue açabilirsiniz.
-
----
-
-**Not:** Bu sistem eğitim amaçlıdır. Gerçek deprem uyarıları için resmi kurumları takip edin.
+MIT

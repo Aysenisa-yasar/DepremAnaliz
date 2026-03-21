@@ -14,5 +14,7 @@ shap>=0.43.0
 geopandas>=0.14.0
 shapely>=2.0.0
 textblob==0.17.1
+# torch>=2.2.0  # GNN/LSTM research pipeline icin opsiyonel
+# torch-geometric>=2.5.0  # GNN pipeline icin opsiyonel, platforma gore manuel kurulum gerekebilir
 # tensorflow>=2.15.0  # LSTM için - Render deploy'da opsiyonel (büyük, build timeout)
 # psycopg2-binary  # PostgreSQL için (DATABASE_URL kullanılacaksa)

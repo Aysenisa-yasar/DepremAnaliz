@@ -525,7 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }).addTo(mymap3);
 
                     const featureHtml = (point.top_features || [])
-                        .map(f => `${f.feature}: ${Number(f.impact).toFixed(3)}`)
+                        .map(f => `${f.name || f.feature}: ${Number(f.value ?? f.impact ?? 0).toFixed(3)}`)
                         .join('<br>');
                     marker.bindPopup(`
                         <b style="color:${color};">${point.city}</b><br>
@@ -533,6 +533,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         Final Olasılık: <b>${(Number(point.probability ?? 0) * 100).toFixed(1)}%</b><br>
                         ML: <b>${(Number(point.ml_probability ?? 0) * 100).toFixed(1)}%</b><br>
                         ETAS: <b>${(Number(point.etas_probability ?? 0) * 100).toFixed(1)}%</b><br>
+                        LSTM: <b>${(Number(point.lstm_probability ?? 0) * 100).toFixed(1)}%</b><br>
+                        Cluster: <b>${(Number(point.cluster_score ?? 0) * 100).toFixed(1)}%</b><br>
+                        b-value: <b>${Number(point.b_value ?? 1).toFixed(2)}</b><br>
+                        b-risk: <b>${(Number(point.b_risk ?? 0) * 100).toFixed(1)}%</b><br>
+                        GNN: <b>${(Number(point.gnn_probability ?? 0) * 100).toFixed(1)}%</b><br>
+                        M>=5 / 72h: <b>${(Number(point.m5_72h_probability ?? 0) * 100).toFixed(1)}%</b><br>
+                        Max Mag / 7d: <b>${Number(point.max_mag_7d_prediction ?? 0).toFixed(2)}</b><br>
                         Fay Segmenti: <b>${point.nearest_fault_segment || 'unknown'}</b><br>
                         Fay Uzaklığı: <b>${Number(point.fault_distance ?? 999).toFixed(1)} km</b><br>
                         Stress: <b>${(Number(point.stress_transfer ?? 0) * 100).toFixed(1)}%</b><br>
@@ -591,10 +598,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const p = Number(point.probability || 0);
                     const color = p >= 0.60 ? '#FF1744' : p >= 0.35 ? '#ff9800' : p >= 0.15 ? '#ffd54f' : '#2ecc71';
                     const marker = L.circleMarker([point.lat, point.lon], {
-                        radius: 4,
+                        radius: 3,
                         color: color,
                         fillColor: color,
-                        fillOpacity: 0.12,
+                        fillOpacity: 0.08,
                         weight: 1
                     }).addTo(mymap3);
                     marker.bindPopup(`
@@ -603,6 +610,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         Olasılık: ${(Number(point.probability || 0) * 100).toFixed(1)}%<br>
                         ML: ${(Number(point.ml_probability || 0) * 100).toFixed(1)}%<br>
                         ETAS: ${(Number(point.etas_probability || 0) * 100).toFixed(1)}%<br>
+                        LSTM: ${(Number(point.lstm_probability || 0) * 100).toFixed(1)}%<br>
+                        Cluster: ${(Number(point.cluster_score || 0) * 100).toFixed(1)}%<br>
+                        b-value: ${Number(point.b_value || 1).toFixed(2)}<br>
+                        b-risk: ${(Number(point.b_risk || 0) * 100).toFixed(1)}%<br>
+                        GNN: ${(Number(point.gnn_probability || 0) * 100).toFixed(1)}%<br>
+                        M>=5 / 72h: ${(Number(point.m5_72h_probability || 0) * 100).toFixed(1)}%<br>
+                        Max Mag / 7d: ${Number(point.max_mag_7d_prediction || 0).toFixed(2)}<br>
                         Fay Segmenti: ${point.nearest_fault_segment || 'unknown'}<br>
                         Fay Uzaklığı: ${Number(point.fault_distance || 999).toFixed(1)} km<br>
                         Stress: ${(Number(point.stress_transfer || 0) * 100).toFixed(1)}%
@@ -629,6 +643,36 @@ document.addEventListener('DOMContentLoaded', () => {
         updatePredictionHistoryDisplay();
     }
 
+    function renderCalibrationChart(calibration) {
+        const xs = Array.isArray(calibration?.prob_pred) ? calibration.prob_pred : [];
+        const ys = Array.isArray(calibration?.prob_true) ? calibration.prob_true : [];
+        if (!xs.length || !ys.length || xs.length !== ys.length) {
+            return '<div style="color: rgba(255,255,255,0.65);">Calibration verisi yok.</div>';
+        }
+
+        const width = 260;
+        const height = 180;
+        const padding = 24;
+        const scaleX = value => padding + Math.max(0, Math.min(1, Number(value || 0))) * (width - padding * 2);
+        const scaleY = value => height - padding - Math.max(0, Math.min(1, Number(value || 0))) * (height - padding * 2);
+        const points = xs.map((x, index) => `${scaleX(x)},${scaleY(ys[index])}`).join(' ');
+        const circles = xs.map((x, index) => `<circle cx="${scaleX(x)}" cy="${scaleY(ys[index])}" r="3" fill="#ffb703"></circle>`).join('');
+
+        return `
+            <div style="margin-top: 14px;">
+                <div style="font-weight: 600; margin-bottom: 8px;">Calibration Curve</div>
+                <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="Calibration curve">
+                    <rect x="0" y="0" width="${width}" height="${height}" fill="rgba(255,255,255,0.03)" rx="10"></rect>
+                    <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${padding}" stroke="rgba(255,255,255,0.25)" stroke-dasharray="4 4"></line>
+                    <polyline points="${points}" fill="none" stroke="#8ecae6" stroke-width="2.5"></polyline>
+                    ${circles}
+                    <text x="${padding}" y="${height - 6}" fill="rgba(255,255,255,0.65)" font-size="10">Predicted</text>
+                    <text x="8" y="${padding - 6}" fill="rgba(255,255,255,0.65)" font-size="10">True</text>
+                </svg>
+            </div>
+        `;
+    }
+
     function loadMLMetrics(base) {
         const el = document.getElementById('mlMetricsContent');
         if (!el) return;
@@ -638,15 +682,33 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(data => {
                 if (data.status === 'success') {
                     const m = data.metrics || {};
+                    const backtest = data.backtest || {};
+                    const calibration = data.calibration || {};
+                    const topImportance = (data.feature_importance || [])
+                        .slice(0, 5)
+                        .map(f => `${f.name || f.feature}: ${Number(f.value ?? f.importance ?? 0).toFixed(2)}`)
+                        .join('<br>');
+                    const roc = Number(m.roc_auc_mean ?? m.roc_auc ?? 0);
+                    const rocStd = m.roc_auc_std;
+                    const pr = Number(m.pr_auc_mean ?? m.pr_auc ?? 0);
+                    const prStd = m.pr_auc_std;
+                    const brier = Number(m.brier_mean ?? m.brier ?? 0);
+                    const brierStd = m.brier_std;
+                    const samples = Number(m.samples ?? m.samples_test ?? 0);
+                    const calibrationHtml = renderCalibrationChart(calibration);
                     el.innerHTML = `
                         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:15px;">
-                            <div><strong>Model:</strong> ${data.model_type || 'forecast_hybrid_v1'}</div>
+                            <div><strong>Model:</strong> ${data.model_type || 'forecast_hybrid_v3_timeseriescv'}</div>
                             <div><strong>Eğitim:</strong> ${data.trained_at ? new Date(data.trained_at).toLocaleString('tr-TR') : 'N/A'}</div>
-                            <div><strong>ROC-AUC:</strong> ${(m.roc_auc ?? 0).toFixed(3)}</div>
-                            <div><strong>PR-AUC:</strong> ${(m.pr_auc ?? 0).toFixed(3)}</div>
-                            <div><strong>Brier:</strong> ${(m.brier ?? 0).toFixed(4)}</div>
+                            <div><strong>ROC-AUC:</strong> ${roc.toFixed(3)}${rocStd != null ? ` +/- ${Number(rocStd).toFixed(3)}` : ''}</div>
+                            <div><strong>PR-AUC:</strong> ${pr.toFixed(3)}${prStd != null ? ` +/- ${Number(prStd).toFixed(3)}` : ''}</div>
+                            <div><strong>Brier:</strong> ${brier.toFixed(4)}${brierStd != null ? ` +/- ${Number(brierStd).toFixed(4)}` : ''}</div>
                             <div><strong>Pozitif oran:</strong> ${(m.positive_rate ?? 0).toFixed(3)}</div>
-                            <div><strong>Örnek sayısı:</strong> ${m.samples ?? 0}</div>
+                            <div><strong>Örnek sayısı:</strong> ${samples}</div>
+                            <div><strong>Backtest hit:</strong> ${((Number(backtest.hit_rate || 0)) * 100).toFixed(1)}%</div>
+                            <div><strong>Calibration bin:</strong> ${(calibration.prob_true || []).length}</div>
+                            <div style="grid-column:1 / -1;"><strong>Global importance:</strong><br>${topImportance || 'Yok'}</div>
+                            <div style="grid-column:1 / -1;">${calibrationHtml}</div>
                         </div>
                     `;
                 } else if (data.status === 'no_model') {

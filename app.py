@@ -48,8 +48,8 @@ except ImportError as e:
 
 # =========================================================
 # LEGACY ROUTES BELOW
-# Yeni frontend /api/v2/* endpointlerini kullanır.
-# app.py içindeki eski route'lar geri uyumluluk içindir.
+# Yeni forecast arayüzü /api/v2/* endpointlerini kullanır.
+# app.py içindeki eski route'lar yalnızca geri uyumluluk içindir.
 # =========================================================
 
 # CORS - Render + GitHub Pages için kesin çözüm

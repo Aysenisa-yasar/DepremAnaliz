@@ -63,6 +63,7 @@ def forecast_map_v2():
                 "gnn_probability": pred.get("gnn_probability", 0.0),
                 "m5_72h_probability": pred.get("m5_72h_probability", 0.0),
                 "max_mag_7d_prediction": pred.get("max_mag_7d_prediction", 0.0),
+                "locality_score": pred.get("locality_score", 0.0),
                 "risk_level": risk_level,
                 "anomaly_score": round(ano, 2),
                 "anomaly_detected": ano > 0.5,

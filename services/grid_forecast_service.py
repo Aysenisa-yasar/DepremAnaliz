@@ -22,6 +22,7 @@ def forecast_grid(events, step=0.5):
             "gnn_probability": float(pred.get("gnn_probability", 0.0)),
             "m5_72h_probability": float(pred.get("m5_72h_probability", 0.0)),
             "max_mag_7d_prediction": float(pred.get("max_mag_7d_prediction", 0.0)),
+            "locality_score": float(pred.get("locality_score", 0.0)),
             "risk_score": float(prob * 10.0),
             "top_features": pred.get("top_features", []),
             "features": pred.get("features", {}),

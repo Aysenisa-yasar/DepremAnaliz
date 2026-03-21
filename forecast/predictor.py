@@ -157,6 +157,19 @@ def _dynamic_weights(features: dict) -> dict:
     return {name: value / total for name, value in weights.items()}
 
 
+def _locality_score(features: dict, signals: dict) -> float:
+    min_distance_term = _clamp01(1.0 - float(features.get("min_distance", 999.0) or 999.0) / 200.0)
+    fault_term = _clamp01(float(features.get("fault_proximity_score", 0.0) or 0.0))
+    signal_term = _clamp01(float(signals.get("signal_event_count", 0) or 0) / 25.0)
+    foreshock_term = _clamp01(float(features.get("foreshock_count", 0) or 0) / 8.0)
+    return float(
+        0.40 * min_distance_term
+        + 0.25 * fault_term
+        + 0.20 * signal_term
+        + 0.15 * foreshock_term
+    )
+
+
 def _predict_auxiliary_targets(model_data: dict, X: np.ndarray) -> tuple[float, float]:
     aux_models = model_data.get("aux_models", {}) if isinstance(model_data, dict) else {}
 
@@ -191,9 +204,14 @@ def predict_with_model_data(
     X = np.array([[feats.get(key, 0) for key in FEATURE_ORDER]], dtype=np.float64)
     signals = _build_signal_bundle(events, lat, lon)
     etas_prob = float(etas_like_score(feats))
+    locality_score = _locality_score(feats, signals)
 
     if not model_data or "model" not in model_data:
-        fallback_prob = _clamp01(0.6 * etas_prob + 0.4 * signals["cluster_score"])
+        fallback_prob = _clamp01(
+            0.50 * etas_prob
+            + 0.25 * signals["cluster_score"]
+            + 0.25 * locality_score
+        )
         return {
             "probability": fallback_prob,
             "ml_probability": 0.0,
@@ -205,6 +223,7 @@ def predict_with_model_data(
             "gnn_probability": float(signals["gnn_probability"]),
             "m5_72h_probability": 0.0,
             "max_mag_7d_prediction": 0.0,
+            "locality_score": float(locality_score),
             "ensemble_weights": _dynamic_weights(feats),
             "signal_event_count": int(signals["signal_event_count"]),
             "features": feats,
@@ -233,7 +252,7 @@ def predict_with_model_data(
         + weights["lstm"] * signals["lstm_probability"]
         + weights["gnn"] * signals["gnn_probability"]
     )
-    final_prob = _clamp01(final_prob)
+    final_prob = _clamp01(0.88 * final_prob + 0.12 * locality_score)
 
     result = {
         "probability": float(final_prob),
@@ -246,6 +265,7 @@ def predict_with_model_data(
         "gnn_probability": float(signals["gnn_probability"]),
         "m5_72h_probability": float(_clamp01(m5_prob)),
         "max_mag_7d_prediction": float(max_mag_7d),
+        "locality_score": float(locality_score),
         "ensemble_weights": weights,
         "signal_event_count": int(signals["signal_event_count"]),
         "features": feats,

@@ -1,1829 +1,759 @@
-// script.js
-// API URL'ini dinamik olarak belirle
-const RENDER_BACKEND_URL = 'https://depremanaliz.onrender.com';
+const RENDER_BACKEND_URL = "https://depremanaliz.onrender.com";
 
-const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:5000'
-    : (window.location.hostname.includes('github.io') 
-        ? RENDER_BACKEND_URL  // GitHub Pages'den Render.com backend'e bağlan
-        : window.location.origin); // Diğer durumlarda aynı domain'i kullan
+const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+    ? "http://localhost:5000"
+    : (window.location.hostname.includes("github.io") ? RENDER_BACKEND_URL : window.location.origin);
 
-// API hata loglama - tarayıcı konsolunda (F12) detaylı hata görmek için
-function logApiError(apiName, url, error, response) {
-    const detail = {
-        api: apiName,
-        url: url,
-        error: error?.message || String(error),
-        errorName: error?.name,
-        errorType: error?.constructor?.name,
-        status: response?.status,
-        statusText: response?.statusText,
-        origin: window.location.origin,
-        timestamp: new Date().toISOString()
-    };
-    console.error('[API HATA]', apiName, '| URL:', url, '| Hata:', detail.error, '| Detay:', detail);
-}
+const state = {
+    map: null,
+    cityLayer: null,
+    gridLayer: null,
+    cities: [],
+    grid: [],
+    selectedCity: null,
+    metrics: null,
+    location: null
+};
 
-let mymap = null; 
-let mymap2 = null;
-let mymap3 = null;
-let forecastCityLayer = null;
-let forecastGridLayer = null;
-let forecastCityPoints = [];
-let forecastGridPoints = [];
-
-// Leaflet self-hosted: icon path (Tracking Prevention için CDN yerine local)
-if (typeof L !== 'undefined') {
-    L.Icon.Default.imagePath = '/static/lib/leaflet/images/';
-}
-let predictionHistory = [];
-
-function initializeMap() {
-    if (mymap !== null && mymap._container) {
-        mymap.remove();
-        mymap = null;
+function stripDecorative(value) {
+    const text = String(value ?? "");
+    try {
+        return text.replace(/\p{Extended_Pictographic}/gu, "").replace(/\s{2,}/g, " ").trim();
+    } catch (_) {
+        return text.trim();
     }
-    
-    mymap = L.map('mapid').setView([39.9, 35.8], 6); 
-
-    // Koyu tema harita
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap contributors © CARTO'
-    }).addTo(mymap);
-    // Leaflet boyut hesaplaması - birkaç kez gecikmeli çağır
-    [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap && mymap.invalidateSize(), ms));
-}
-
-function initializeMap2() {
-    if (mymap2 !== null && mymap2._container) {
-        mymap2.remove();
-        mymap2 = null;
-    }
-    
-    mymap2 = L.map('mapid2').setView([39.9, 35.8], 6); 
-
-    // Koyu tema harita
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap contributors © CARTO'
-    }).addTo(mymap2);
-    // Leaflet boyut hesaplaması - birkaç kez gecikmeli çağır
-    [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap2 && mymap2.invalidateSize(), ms));
-}
-
-function initializeMap3() {
-    if (mymap3 !== null && mymap3._container) {
-        mymap3.remove();
-        mymap3 = null;
-    }
-    forecastCityLayer = null;
-    forecastGridLayer = null;
-    mymap3 = L.map('mapid3').setView([39.9, 35.8], 6);
-    L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        { maxZoom: 19, attribution: '© OpenStreetMap contributors © CARTO' }
-    ).addTo(mymap3);
-    forecastCityLayer = L.layerGroup().addTo(mymap3);
-    forecastGridLayer = L.layerGroup();
-    [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap3 && mymap3.invalidateSize(), ms));
-    setTimeout(() => { if (mymap3) mymap3.invalidateSize(); }, 200);
-}
-
-function getPredictionColor(probability) {
-    if (probability >= 70) return '#FF1744';
-    if (probability >= 50) return '#ff9800';
-    if (probability >= 30) return '#ffd54f';
-    return '#2ecc71';
-}
-
-function getRiskColor(score) {
-    if (score >= 7.0) return 'red'; 
-    if (score >= 4.0) return 'orange'; 
-    return 'green'; 
 }
 
 function formatPercent(value) {
     return `${(Number(value || 0) * 100).toFixed(1)}%`;
 }
 
-function formatFixed(value, digits = 2, fallback = '0.00') {
+function formatFixed(value, digits = 2, fallback = "0.00") {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric.toFixed(digits) : fallback;
 }
 
-function setForecastMapStatus(message, tone = 'muted') {
-    const el = document.getElementById('forecastMapStatus');
-    if (!el) return;
-    el.textContent = message;
-    el.style.color = tone === 'error'
-        ? '#FF8A80'
-        : tone === 'success'
-            ? '#7CFFB2'
-            : tone === 'warn'
-                ? '#FFD166'
-                : 'rgba(255,255,255,0.75)';
-}
-
-function getForecastLayerPreferences() {
-    return {
-        showCities: document.getElementById('forecastCityToggle')?.checked !== false,
-        showGrid: !!document.getElementById('forecastGridToggle')?.checked
-    };
-}
-
-function applyForecastLayerVisibility() {
-    if (!mymap3) return;
-    const prefs = getForecastLayerPreferences();
-
-    if (forecastCityLayer) {
-        if (prefs.showCities && !mymap3.hasLayer(forecastCityLayer)) {
-            forecastCityLayer.addTo(mymap3);
-        } else if (!prefs.showCities && mymap3.hasLayer(forecastCityLayer)) {
-            mymap3.removeLayer(forecastCityLayer);
-        }
-    }
-
-    if (forecastGridLayer) {
-        if (prefs.showGrid && !mymap3.hasLayer(forecastGridLayer)) {
-            forecastGridLayer.addTo(mymap3);
-        } else if (!prefs.showGrid && mymap3.hasLayer(forecastGridLayer)) {
-            mymap3.removeLayer(forecastGridLayer);
-        }
+function formatDateTime(value) {
+    if (!value) return "Unknown";
+    try {
+        return new Date(value).toLocaleString("tr-TR");
+    } catch (_) {
+        return String(value);
     }
 }
 
-function formatEnsembleWeights(weights) {
-    const items = Object.entries(weights || {});
-    if (!items.length) return 'Yok';
-    return items
-        .map(([key, value]) => `${String(key).toUpperCase()}: ${(Number(value || 0) * 100).toFixed(0)}%`)
-        .join(' | ');
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
 }
 
-function fallbackFeatureHtml(features) {
-    if (!features || typeof features !== 'object') return 'Yok';
-    const preferredKeys = [
-        'count',
-        'max_mag',
-        'min_distance',
-        'recent_24h_count',
-        'fault_distance',
-        'recency_energy',
-        'stress_transfer',
-        'spatial_density'
-    ];
-    const lines = preferredKeys
-        .filter(key => features[key] != null)
-        .slice(0, 5)
-        .map(key => `${key}: ${Number(features[key] || 0).toFixed(key.includes('count') ? 0 : 3)}`);
-    return lines.join('<br>') || 'Yok';
+function setHtml(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = value;
 }
 
-function buildForecastPopup(point, kind = 'city') {
-    const title = point.city || (kind === 'grid' ? 'Grid noktasi' : 'Forecast noktasi');
-    const featureHtml = Array.isArray(point.top_features) && point.top_features.length
-        ? point.top_features
-            .map(f => `${f.name || f.feature}: ${Number(f.value ?? f.impact ?? 0).toFixed(3)}`)
-            .join('<br>')
-        : fallbackFeatureHtml(point.features);
-    const anomalyHtml = point.anomaly_score != null
-        ? `Anomali skoru: <b>${formatFixed(point.anomaly_score, 2, '0.00')}</b><br>`
-        : '';
-    const energyHtml = point.energy_release != null
-        ? `Energy: <b>${formatFixed(point.energy_release, 2, '0.00')}</b><br>`
-        : '';
-    const foreshockHtml = point.foreshock_count != null
-        ? `Foreshock: <b>${Number(point.foreshock_count || 0)}</b><br>`
-        : '';
-    const densityHtml = point.spatial_density != null
-        ? `Spatial density: <b>${formatFixed(point.spatial_density, 3, '0.000')}</b><br>`
-        : '';
-    const trendHtml = point.mag_trend != null
-        ? `Mag trend: <b>${formatFixed(point.mag_trend, 2, '0.00')}</b><br>`
-        : '';
+async function fetchJson(path, options = {}, timeoutMs = 90000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(`${API_BASE}${path}`, {
+            mode: "cors",
+            headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+            ...options,
+            signal: controller.signal
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        return await response.json();
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+function forecastColor(probability) {
+    if (probability >= 0.60) return "#c63d2f";
+    if (probability >= 0.40) return "#c88326";
+    if (probability >= 0.22) return "#b7a125";
+    return "#18794e";
+}
+
+function warningClass(level) {
+    const normalized = String(level || "").toUpperCase();
+    if (normalized.includes("KRITIK") || normalized.includes("KRİTİK")) return "warning-critical";
+    if (normalized.includes("YUKSEK") || normalized.includes("YÜKSEK")) return "warning-high";
+    if (normalized.includes("ORTA")) return "warning-medium";
+    if (normalized.includes("NORMAL")) return "warning-normal";
+    return "warning-neutral";
+}
+
+function initMap() {
+    if (!window.L) return;
+
+    state.map = L.map("forecastMap", {
+        zoomControl: true,
+        scrollWheelZoom: true
+    }).setView([39.1, 35.2], 6);
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+    }).addTo(state.map);
+
+    state.cityLayer = L.layerGroup().addTo(state.map);
+    state.gridLayer = L.layerGroup();
+
+    [50, 200, 600].forEach(delay => {
+        setTimeout(() => {
+            if (state.map) state.map.invalidateSize();
+        }, delay);
+    });
+}
+
+function buildPopup(point) {
+    const features = Array.isArray(point.top_features) && point.top_features.length
+        ? point.top_features.map(item => `<div>${stripDecorative(item.name || item.feature)}: ${formatFixed(item.value ?? item.impact ?? 0, 3)}</div>`).join("")
+        : "<div>No explanation available.</div>";
+
+    const weights = Object.entries(point.ensemble_weights || {})
+        .map(([key, value]) => `<div>${String(key).toUpperCase()}: ${formatPercent(value)}</div>`)
+        .join("");
 
     return `
-        <b>${title}</b><br>
-        Risk: <b>${formatFixed(point.risk_score, 2, '0.00')}/10</b><br>
-        Final olasilik: <b>${formatPercent(point.probability)}</b><br>
-        ML: <b>${formatPercent(point.ml_probability)}</b><br>
-        ETAS: <b>${formatPercent(point.etas_probability)}</b><br>
-        LSTM: <b>${formatPercent(point.lstm_probability)}</b><br>
-        Cluster: <b>${formatPercent(point.cluster_score)}</b><br>
-        b-value: <b>${formatFixed(point.b_value, 2, '1.00')}</b><br>
-        b-risk: <b>${formatPercent(point.b_risk)}</b><br>
-        GNN: <b>${formatPercent(point.gnn_probability)}</b><br>
-        M>=5 / 72h: <b>${formatPercent(point.m5_72h_probability)}</b><br>
-        Max Mag / 7d: <b>${formatFixed(point.max_mag_7d_prediction, 2, '0.00')}</b><br>
-        Signal event: <b>${Number(point.signal_event_count || 0)}</b><br>
-        Fay segmenti: <b>${point.nearest_fault_segment || 'unknown'}</b><br>
-        Fay uzakligi: <b>${formatFixed(point.fault_distance, 1, '999.0')} km</b><br>
-        Stress: <b>${formatPercent(point.stress_transfer)}</b><br>
-        ${energyHtml}
-        ${foreshockHtml}
-        ${densityHtml}
-        ${trendHtml}
-        ${anomalyHtml}
-        Model: <b>${point.model_type || 'forecast_hybrid_v3_timeseriescv'}</b><br>
-        Ensemble: <b>${formatEnsembleWeights(point.ensemble_weights)}</b><br>
-        <hr><b>Onemli ozellikler</b><br>${featureHtml || 'Yok'}
+        <strong>${stripDecorative(point.city || "Forecast point")}</strong><br>
+        Final probability: ${formatPercent(point.probability)}<br>
+        Risk score: ${formatFixed(point.risk_score, 2)}/10<br>
+        M&gt;=5 / 72h: ${formatPercent(point.m5_72h_probability)}<br>
+        Max mag / 7d: ${formatFixed(point.max_mag_7d_prediction, 2)}<br>
+        Locality score: ${formatPercent(point.locality_score)}<br>
+        Fault distance: ${formatFixed(point.fault_distance, 1, "999.0")} km<br>
+        Signal events: ${Number(point.signal_event_count || 0)}<br>
+        <hr>
+        <div><strong>Weights</strong></div>
+        ${weights || "<div>No weight data.</div>"}
+        <hr>
+        <div><strong>Top features</strong></div>
+        ${features}
     `;
 }
 
-function renderForecastCityPoints(points) {
-    if (!forecastCityLayer) return;
-    forecastCityLayer.clearLayers();
+function buildMetricTiles(point) {
+    const tiles = [
+        ["Final probability", formatPercent(point.probability)],
+        ["Risk score", `${formatFixed(point.risk_score, 2)}/10`],
+        ["ML", formatPercent(point.ml_probability)],
+        ["ETAS", formatPercent(point.etas_probability)],
+        ["LSTM", formatPercent(point.lstm_probability)],
+        ["GNN", formatPercent(point.gnn_probability)],
+        ["M>=5 / 72h", formatPercent(point.m5_72h_probability)],
+        ["Max mag / 7d", formatFixed(point.max_mag_7d_prediction, 2)],
+        ["Locality score", formatPercent(point.locality_score)],
+        ["Fault distance", `${formatFixed(point.fault_distance, 1, "999.0")} km`],
+        ["Fault segment", stripDecorative(point.nearest_fault_segment || "unknown")],
+        ["Signal events", String(Number(point.signal_event_count || 0))],
+        ["Stress transfer", formatPercent(point.stress_transfer)]
+    ];
 
+    return tiles.map(([label, value]) => `
+        <div class="metric-tile">
+            <span class="tile-label">${label}</span>
+            <strong class="tile-value">${value}</strong>
+        </div>
+    `).join("");
+}
+
+function updateSelectedCity(point) {
+    if (!point) return;
+    state.selectedCity = point;
+
+    setText("selectedCityName", stripDecorative(point.city || "Unknown city"));
+    setText(
+        "selectedCitySubtitle",
+        `Final probability ${formatPercent(point.probability)}, M>=5 / 72h ${formatPercent(point.m5_72h_probability)}, signal window ${Number(point.signal_event_count || 0)} event.`
+    );
+    setHtml("selectedMetricGrid", buildMetricTiles(point));
+
+    const featureHtml = Array.isArray(point.top_features) && point.top_features.length
+        ? point.top_features.map(item => `
+            <span class="tag-item">${stripDecorative(item.name || item.feature)}: ${formatFixed(item.value ?? item.impact ?? 0, 3)}</span>
+        `).join("")
+        : `<span class="empty-state">No SHAP-style explanation available for this point.</span>`;
+    setHtml("selectedFeatures", featureHtml);
+
+    const weightEntries = Object.entries(point.ensemble_weights || {});
+    const weightHtml = weightEntries.length
+        ? weightEntries.map(([key, value]) => `
+            <div class="weight-row">
+                <span>${String(key).toUpperCase()}</span>
+                <div class="weight-bar"><div class="weight-fill" style="width:${Math.max(0, Math.min(100, Number(value || 0) * 100))}%"></div></div>
+                <span>${formatPercent(value)}</span>
+            </div>
+        `).join("")
+        : `<div class="empty-state">No ensemble weights available.</div>`;
+    setHtml("selectedWeights", weightHtml);
+
+    renderCityRanking(state.cities);
+}
+
+function renderCityMarkers(points) {
+    state.cityLayer.clearLayers();
     const bounds = [];
-    points.forEach(point => {
-        if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
-        const probPct = Number(point.probability || 0) * 100;
-        const color = getPredictionColor(probPct);
-        const radius = Math.max(8, Math.min(24, 8 + (Number(point.risk_score || 0) * 10) / 6));
-        bounds.push([point.lat, point.lon]);
 
+    points.forEach(point => {
+        if (typeof point.lat !== "number" || typeof point.lon !== "number") return;
+
+        const color = forecastColor(Number(point.probability || 0));
         const marker = L.circleMarker([point.lat, point.lon], {
-            radius,
+            radius: 8 + Math.min(14, Number(point.risk_score || 0)),
             color,
             fillColor: color,
-            fillOpacity: 0.72,
-            weight: 2.5
-        }).addTo(forecastCityLayer);
-        marker.bindPopup(buildForecastPopup(point, 'city'));
+            fillOpacity: 0.74,
+            weight: 2
+        }).addTo(state.cityLayer);
+
+        marker.bindPopup(buildPopup(point));
+        marker.on("click", () => updateSelectedCity(point));
+        bounds.push([point.lat, point.lon]);
     });
 
-    if (bounds.length > 0 && mymap3) {
-        mymap3.fitBounds(bounds, { padding: [50, 50] });
+    if (bounds.length) {
+        state.map.fitBounds(bounds, { padding: [36, 36] });
     }
 }
 
-function renderForecastGridPoints(points) {
-    if (!forecastGridLayer) return;
-    forecastGridLayer.clearLayers();
+function renderGridMarkers(points) {
+    state.gridLayer.clearLayers();
 
     points.forEach(point => {
-        if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
-        const probability = Number(point.probability || 0);
-        const color = probability >= 0.60 ? '#FF1744' : probability >= 0.35 ? '#ff9800' : probability >= 0.15 ? '#ffd54f' : '#2ecc71';
-        const marker = L.circleMarker([point.lat, point.lon], {
-            radius: 4,
+        if (typeof point.lat !== "number" || typeof point.lon !== "number") return;
+        const color = forecastColor(Number(point.probability || 0));
+        L.circleMarker([point.lat, point.lon], {
+            radius: 3.6,
             color,
             fillColor: color,
             fillOpacity: 0.16,
             weight: 1
-        }).addTo(forecastGridLayer);
-        marker.bindPopup(buildForecastPopup(point, 'grid'));
+        }).bindPopup(buildPopup(point)).addTo(state.gridLayer);
     });
 }
 
-function describeForecastQuality(metrics, backtest) {
+function syncLayerVisibility() {
+    if (!state.map) return;
+
+    const showCities = document.getElementById("toggleCityLayer")?.checked !== false;
+    const showGrid = !!document.getElementById("toggleGridLayer")?.checked;
+
+    if (showCities && !state.map.hasLayer(state.cityLayer)) {
+        state.cityLayer.addTo(state.map);
+    } else if (!showCities && state.map.hasLayer(state.cityLayer)) {
+        state.map.removeLayer(state.cityLayer);
+    }
+
+    if (showGrid && !state.map.hasLayer(state.gridLayer)) {
+        state.gridLayer.addTo(state.map);
+    } else if (!showGrid && state.map.hasLayer(state.gridLayer)) {
+        state.map.removeLayer(state.gridLayer);
+    }
+}
+
+function renderCityRanking(points) {
+    const container = document.getElementById("cityRanking");
+    if (!container) return;
+
+    const sorted = [...points].sort((left, right) => Number(right.probability || 0) - Number(left.probability || 0));
+    const spread = sorted.length
+        ? Number(sorted[0].probability || 0) - Number(sorted[sorted.length - 1].probability || 0)
+        : 0;
+
+    setText(
+        "rankingSummary",
+        sorted.length
+            ? `Tracking ${sorted.length} cities. Forecast spread ${formatPercent(spread)} between highest and lowest city probability.`
+            : "No city forecast data."
+    );
+
+    container.innerHTML = sorted.map(point => {
+        const activeClass = state.selectedCity && point.city === state.selectedCity.city ? " is-active" : "";
+        return `
+            <button class="ranking-row${activeClass}" type="button" data-city="${stripDecorative(point.city)}">
+                <div class="ranking-top">
+                    <span class="ranking-title">${stripDecorative(point.city)}</span>
+                    <span class="ranking-score">${formatPercent(point.probability)}</span>
+                </div>
+                <div class="ranking-meta">
+                    <span>M>=5 / 72h ${formatPercent(point.m5_72h_probability)}</span>
+                    <span>Locality ${formatPercent(point.locality_score)}</span>
+                    <span>Fault ${formatFixed(point.fault_distance, 1, "999.0")} km</span>
+                    <span>Signals ${Number(point.signal_event_count || 0)}</span>
+                </div>
+            </button>
+        `;
+    }).join("");
+
+    container.querySelectorAll(".ranking-row").forEach(button => {
+        button.addEventListener("click", () => {
+            const point = state.cities.find(item => stripDecorative(item.city) === button.dataset.city);
+            if (!point) return;
+            updateSelectedCity(point);
+            if (state.map) {
+                state.map.flyTo([point.lat, point.lon], Math.max(state.map.getZoom(), 6), { duration: 0.6 });
+            }
+        });
+    });
+}
+
+function renderCalibration(calibration) {
+    const xs = Array.isArray(calibration?.prob_pred) ? calibration.prob_pred : [];
+    const ys = Array.isArray(calibration?.prob_true) ? calibration.prob_true : [];
+    if (!xs.length || xs.length !== ys.length) {
+        setHtml("calibrationChart", `<div class="empty-state">No calibration curve available.</div>`);
+        return;
+    }
+
+    const width = 420;
+    const height = 250;
+    const pad = 28;
+    const scaleX = value => pad + Math.max(0, Math.min(1, Number(value || 0))) * (width - pad * 2);
+    const scaleY = value => height - pad - Math.max(0, Math.min(1, Number(value || 0))) * (height - pad * 2);
+    const points = xs.map((x, index) => `${scaleX(x)},${scaleY(ys[index])}`).join(" ");
+    const circles = xs.map((x, index) => `<circle cx="${scaleX(x)}" cy="${scaleY(ys[index])}" r="4" fill="#b13a2d"></circle>`).join("");
+
+    setHtml("calibrationChart", `
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Calibration chart">
+            <rect x="0" y="0" width="${width}" height="${height}" rx="18" fill="rgba(31, 41, 55, 0.04)"></rect>
+            <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${pad}" stroke="rgba(31, 41, 55, 0.22)" stroke-dasharray="6 6"></line>
+            <polyline points="${points}" fill="none" stroke="#0f766e" stroke-width="3"></polyline>
+            ${circles}
+            <text x="${pad}" y="${height - 8}" font-size="11" fill="#5f6b7a">Predicted probability</text>
+            <text x="10" y="${pad - 8}" font-size="11" fill="#5f6b7a">Observed frequency</text>
+        </svg>
+    `);
+}
+
+function renderImportance(items) {
+    if (!Array.isArray(items) || !items.length) {
+        setHtml("importanceList", `<div class="empty-state">No feature importance data.</div>`);
+        return;
+    }
+
+    const top = items.slice(0, 10);
+    const maxValue = Math.max(...top.map(item => Number(item.value ?? item.importance ?? 0)), 1);
+    setHtml("importanceList", top.map(item => {
+        const name = stripDecorative(item.name || item.feature);
+        const value = Number(item.value ?? item.importance ?? 0);
+        const width = Math.max(2, (value / maxValue) * 100);
+        return `
+            <div class="importance-row">
+                <span>${name}</span>
+                <div class="importance-track"><div class="importance-fill" style="width:${width}%"></div></div>
+                <span>${formatFixed(value, 2)}</span>
+            </div>
+        `;
+    }).join(""));
+}
+
+function renderMetricBlocks(metrics, backtest, calibration) {
+    const blocks = [
+        ["ROC-AUC", `${formatFixed(metrics.roc_auc_mean ?? metrics.roc_auc ?? 0, 3)}`],
+        ["PR-AUC", `${formatFixed(metrics.pr_auc_mean ?? metrics.pr_auc ?? 0, 3)}`],
+        ["Brier", `${formatFixed(metrics.brier_mean ?? metrics.brier ?? 0, 4)}`],
+        ["Backtest hit", `${formatPercent(backtest.hit_rate || 0)}`],
+        ["Positive rate", `${formatFixed(metrics.positive_rate ?? 0, 3)}`],
+        ["Samples", `${Number(metrics.samples ?? metrics.samples_test ?? 0)}`],
+        ["Mean forecast", `${formatPercent(backtest.mean_prob || 0)}`],
+        ["Calibration bins", `${Array.isArray(calibration?.prob_true) ? calibration.prob_true.length : 0}`]
+    ];
+
+    setHtml("metricsGrid", blocks.map(([label, value]) => `
+        <div class="metric-block">
+            <span>${label}</span>
+            <strong>${value}</strong>
+        </div>
+    `).join(""));
+}
+
+function renderNarrative(metrics, backtest, targets) {
     const roc = Number(metrics.roc_auc_mean ?? metrics.roc_auc ?? 0);
     const pr = Number(metrics.pr_auc_mean ?? metrics.pr_auc ?? 0);
     const brier = Number(metrics.brier_mean ?? metrics.brier ?? 1);
     const hit = Number(backtest.hit_rate || 0);
+    const primaryTarget = stripDecorative(targets?.primary || "m4_24h");
+    const auxiliary = Array.isArray(targets?.auxiliary) ? targets.auxiliary.join(", ") : "none";
+    const citySpread = state.cities.length
+        ? Number(Math.max(...state.cities.map(point => Number(point.probability || 0))) - Math.min(...state.cities.map(point => Number(point.probability || 0))))
+        : 0;
+    const gnnInactive = state.cities.length && state.cities.every(point => Number(point.gnn_probability || 0) === 0);
 
-    const rankingLabel = roc >= 0.75 ? 'guclu' : roc >= 0.65 ? 'orta' : 'sinirli';
-    const calibrationLabel = brier <= 0.08 ? 'iyi' : brier <= 0.15 ? 'orta' : 'zayif';
+    const sentences = [
+        `The primary live score on screen is ${primaryTarget}. Auxiliary targets are ${stripDecorative(auxiliary)}.`,
+        `Current discrimination is moderate with ROC-AUC ${roc.toFixed(3)} and PR-AUC ${pr.toFixed(3)}.`,
+        `Probability calibration is ${brier <= 0.08 ? "good" : brier <= 0.15 ? "usable" : "weak"} based on Brier ${brier.toFixed(4)}.`,
+        `Rolling backtest hit rate is ${(hit * 100).toFixed(1)} percent.`,
+        `City forecast spread is ${formatPercent(citySpread)} across the tracked city set.`
+    ];
 
-    return `Canli ekranda gorulen ana skor M>=4 / 24h tahminidir. Ayrim gucu ${rankingLabel}, olasilik kalibrasyonu ${calibrationLabel}; geriye donuk hit ${(hit * 100).toFixed(1)}%, ROC-AUC ${roc.toFixed(3)}, PR-AUC ${pr.toFixed(3)}.`;
+    if (gnnInactive) {
+        sentences.push("GNN contribution is currently zero in the live outputs; if that remains after restart, verify the runtime environment that serves the app.");
+    }
+
+    setHtml("qualityNarrative", sentences.map(sentence => `<p>${sentence}</p>`).join(""));
 }
 
-// Modern Modal System - Global functions
-function openModal(title, content) {
-    const modalOverlay = document.getElementById('modalOverlay');
-    const modalTitle = document.getElementById('modalTitle');
-    const modalContent = document.getElementById('modalContent');
-    
-    if (!modalOverlay || !modalTitle || !modalContent) return;
-    
-    modalTitle.textContent = title;
-    modalContent.innerHTML = content;
-    modalOverlay.classList.add('active');
-    document.body.style.overflow = 'hidden';
+function updateSummary(metricsPayload, turkeyWarnings) {
+    const metrics = metricsPayload.metrics || {};
+    const backtest = metricsPayload.backtest || {};
+    const targets = metricsPayload.targets || {};
+
+    setText("summaryModel", stripDecorative(metricsPayload.model_type || "forecast_hybrid_v3_timeseriescv"));
+    setText("summaryTarget", `Primary target ${stripDecorative(targets.primary || "m4_24h")}`);
+    setText("summaryTrainedAt", formatDateTime(metricsPayload.trained_at));
+    setText("summarySamples", `${Number(metrics.samples ?? metrics.samples_test ?? 0)} samples`);
+    setText("summaryBacktest", formatPercent(backtest.hit_rate || 0));
+    setText("summaryRoc", `ROC ${formatFixed(metrics.roc_auc_mean ?? metrics.roc_auc ?? 0, 3)}`);
+
+    const activeCount = Number(turkeyWarnings?.cities_with_warnings || 0);
+    setText("summaryWarningState", activeCount > 0 ? `${activeCount} active city` : "No active city");
+    setText(
+        "summaryWarningNote",
+        activeCount > 0
+            ? "Before-event warning remains enabled."
+            : "Before-event warning remains available."
+    );
 }
 
-function closeModal() {
-    const modalOverlay = document.getElementById('modalOverlay');
-    if (modalOverlay) {
-        modalOverlay.classList.remove('active');
-        document.body.style.overflow = '';
-    }
+async function loadMetrics() {
+    const data = await fetchJson("/api/v2/forecast-metrics");
+    state.metrics = data;
+
+    const metrics = data.metrics || {};
+    const backtest = data.backtest || {};
+    renderMetricBlocks(metrics, backtest, data.calibration || {});
+    renderCalibration(data.calibration || {});
+    renderImportance(data.feature_importance || []);
+    return data;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Modal System Setup
-    const modalOverlay = document.getElementById('modalOverlay');
-    const modalClose = document.getElementById('modalClose');
-    
-    if (modalOverlay) {
-        modalOverlay.addEventListener('click', (e) => {
-            if (e.target === modalOverlay) {
-                closeModal();
-            }
-        });
+async function loadForecastCities() {
+    setText("forecastMapStatus", "Loading city forecast.");
+    const data = await fetchJson("/api/v2/forecast-map");
+    const points = Array.isArray(data.points) ? data.points : [];
+    state.cities = points;
+    renderCityMarkers(points);
+    renderCityRanking(points);
+    syncLayerVisibility();
+
+    if (points.length) {
+        const top = [...points].sort((left, right) => Number(right.probability || 0) - Number(left.probability || 0))[0];
+        updateSelectedCity(top);
+        setText("forecastMapStatus", `Loaded ${points.length} city forecasts. Grid is optional.`);
+    } else {
+        setText("forecastMapStatus", "No city forecast data returned.");
     }
-    
-    if (modalClose) {
-        modalClose.addEventListener('click', closeModal);
+
+    return data;
+}
+
+async function loadForecastGrid(forceReload = false) {
+    if (!document.getElementById("toggleGridLayer")?.checked) {
+        state.gridLayer.clearLayers();
+        syncLayerVisibility();
+        return;
     }
-    
-    // ESC tuşu ile kapat
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modalOverlay && modalOverlay.classList.contains('active')) {
-            closeModal();
+
+    if (state.grid.length && !forceReload) {
+        renderGridMarkers(state.grid);
+        syncLayerVisibility();
+        setText("forecastMapStatus", `Grid layer loaded with ${state.grid.length} points.`);
+        return;
+    }
+
+    setText("forecastMapStatus", "Loading grid forecast. This can take longer than city forecast.");
+    const data = await fetchJson("/api/v2/forecast-grid", {}, 180000);
+    state.grid = Array.isArray(data.points) ? data.points : [];
+    renderGridMarkers(state.grid);
+    syncLayerVisibility();
+    setText("forecastMapStatus", `Grid layer loaded with ${state.grid.length} points.`);
+}
+
+function renderIstanbulWarning(data) {
+    const level = stripDecorative(data.alert_level || "Unknown");
+    const message = stripDecorative(data.message || "No warning message.");
+    const timeToEvent = stripDecorative(data.time_to_event || "No estimate");
+    const score = formatFixed(data.alert_score || 0, 2);
+    const predictedMagnitude = data.predicted_magnitude != null ? `Predicted magnitude ${formatFixed(data.predicted_magnitude, 1)}.` : "Predicted magnitude unavailable.";
+    const recent = Number(data.recent_earthquakes || 0);
+    const anomaly = data.anomaly_detected ? "Anomaly detected." : "No anomaly flag.";
+
+    const body = [
+        `<p>${message}</p>`,
+        `<p>Warning score ${score}. ${predictedMagnitude}</p>`,
+        `<p>Time window ${timeToEvent}. Recent events ${recent}. ${anomaly}</p>`
+    ].join("");
+
+    const levelEl = document.getElementById("istanbulWarningLevel");
+    if (levelEl) {
+        levelEl.className = `warning-level ${warningClass(level)}`;
+        levelEl.textContent = level;
+    }
+
+    setHtml("istanbulWarningBody", body);
+}
+
+function renderTurkeyWarnings(data) {
+    if (data && data.status === "error") {
+        const summaryEl = document.getElementById("turkeyWarningSummary");
+        if (summaryEl) {
+            summaryEl.className = "warning-level warning-neutral";
+            summaryEl.textContent = "Turkey warning endpoint error";
         }
-    });
-    
-    // Pencere boyutu değişince haritaları güncelle
-    window.addEventListener('resize', () => {
-        if (mymap) mymap.invalidateSize();
-        if (mymap2) mymap2.invalidateSize();
-        if (mymap3) mymap3.invalidateSize();
-    });
-    // Sayfa tam yüklendiğinde harita boyutlarını güncelle
-    window.addEventListener('load', () => {
-        setTimeout(() => {
-            if (mymap) mymap.invalidateSize();
-            if (mymap2) mymap2.invalidateSize();
-            if (mymap3) mymap3.invalidateSize();
-        }, 100);
-    });
-    
-    // API URL'ini dinamik olarak kullan (localhost veya production)
-    const RENDER_API_BASE_URL = API_URL;
-    console.log('[API] Base URL:', RENDER_API_BASE_URL, '| Origin:', window.location.origin);
-    
-    // Render.com uyanık tutma + GitHub Pages CORS için sunucuyu önceden uyandır
-    const isCrossOrigin = RENDER_API_BASE_URL.includes('render.com') || RENDER_API_BASE_URL.includes('onrender.com');
-    if (isCrossOrigin) {
-        function pingServer() {
-            fetch(`${RENDER_API_BASE_URL}/api/health`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
-                mode: 'cors'
-            })
-            .then(r => { if (r.ok) console.log('[PING] ✅ Sunucu hazır'); })
-            .catch(() => console.log('[PING] ⏳ Sunucu uyanıyor...'));
-        }
-        // GitHub Pages: Sayfa açılır açılmaz sunucuyu uyandır (cold start önleme)
-        pingServer();
-        setTimeout(pingServer, 5000);
-        setTimeout(pingServer, 15000);
-        setInterval(pingServer, 300000); // 5 dakikada bir
-        // Arka planda ağır endpoint'leri önceden çağır (cache ısınsın - ilk tıklamada hızlı yanıt)
-        setTimeout(() => {
-            fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, { method: 'GET', mode: 'cors' }).catch(() => {});
-            fetch(`${RENDER_API_BASE_URL}/api/istanbul-early-warning`, { method: 'GET', mode: 'cors' }).catch(() => {});
-        }, 20000); // 20 sn sonra arka planda
-        console.log('[PING] Sunucu uyanık tutma aktif');
-    }
-    const apiURL = `${RENDER_API_BASE_URL}/api/risk`; 
-    
-    const listContainer = document.getElementById('earthquake-list');
-    const refreshButton = document.getElementById('refreshButton');
-    
-    const getLocationButton = document.getElementById('getLocationButton');
-    const saveSettingsButton = document.getElementById('saveSettingsButton');
-    const getOptInLinkButton = document.getElementById('getOptInLinkButton');
-    const optInLinkDisplay = document.getElementById('optInLinkDisplay');
-    const optInLink = document.getElementById('optInLink');
-    const locationStatus = document.getElementById('locationStatus');
-    const numberInput = document.getElementById('numberInput');
-    
-    // Manuel hasar tahmini kaldırıldı
-    // Manuel hasar tahmini kaldırıldı
-    const predictRiskButton = document.getElementById('predictRiskButton');
-    const riskPredictionResult = document.getElementById('riskPredictionResult');
-    const analyzeCityDamageButton = document.getElementById('analyzeCityDamageButton');
-    const cityDamageResult = document.getElementById('cityDamageResult');
-    const checkIstanbulWarningButton = document.getElementById('checkIstanbulWarningButton');
-    const istanbulWarningResult = document.getElementById('istanbulWarningResult');
-
-    let userCoords = null; 
-
-    // İlk harita: Risk Analizi
-    function fetchRiskData() {
-        listContainer.innerHTML = '<p>YZ risk analizi verileri yükleniyor...</p>';
-        initializeMap(); 
-
-        fetch(apiURL, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            mode: 'cors'
-        })
-            .then(response => {
-                if (!response.ok) {
-                    if (response.status === 503 || response.status === 502) {
-                        listContainer.innerHTML = `<p style="color: #FFA726;">⚠️ Sunucu uyku modunda. Lütfen 10-15 saniye bekleyip sayfayı yenileyin (F5).</p>`;
-                        return null;
-                    }
-                    throw new Error(`Sunucu hatası: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (!data) return; // Uyku modu durumunda çık
-                
-                listContainer.innerHTML = '';
-                let bounds = [];
-                
-                // Hata kontrolü
-                if (data.error) {
-                    listContainer.innerHTML = `<p style="color: #FF1744;">Hata: ${data.error}</p>`;
-                    return;
-                }
-                
-                // YZ Risk bölgelerini ekle (SADECE RİSK ANALİZİ)
-                if (data.risk_regions && data.risk_regions.length > 0) {
-                    data.risk_regions.forEach(riskRegion => {
-                        const { lat, lon, score, density } = riskRegion;
-                        bounds.push([lat, lon]);
-                        
-                        const color = getRiskColor(score);
-                        
-                        const marker = L.circleMarker([lat, lon], {
-                            radius: score * 1.5, 
-                            color: color,
-                            fillColor: color,
-                            fillOpacity: 0.6,
-                            weight: 3
-                        }).addTo(mymap);
-                        
-                        const popupContent = `
-                            <b style="color: ${color};">🤖 YZ Risk Merkezi #${riskRegion.id + 1}</b><br>
-                            Risk Puanı: <b>${score.toFixed(1)} / 10</b><br>
-                            Yoğunluk: ${density} deprem
-                        `;
-                        marker.bindPopup(popupContent);
-                    });
-                }
-                
-                // Veri yoksa mesaj göster
-                if (!data.risk_regions || data.risk_regions.length === 0) {
-                    listContainer.innerHTML = '<p style="color: #FF1744;">Şu anda yeterli risk analizi verisi yok.</p>';
-                }
-                
-                // Haritayı tüm işaretlere göre ayarla
-                if (bounds.length > 0) {
-                    mymap.fitBounds(bounds, { padding: [50, 50] });
-                } else {
-                    mymap.setView([39.9, 35.8], 6);
-                }
-                // İl heatmap overlay (city-damage verisi varsa)
-                if (cityRiskData) addCityHeatmapOverlay(cityRiskData);
-                if (mymap) mymap.invalidateSize();
-            })
-            .catch(error => {
-                logApiError('fetchRiskData', apiURL, error);
-                listContainer.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir.</p><p style="font-size:0.9em;color:#FFA726;">⏳ 45 saniye sonra otomatik yeniden denenecek...</p>`;
-                if (isCrossOrigin) setTimeout(() => { fetchRiskData(); fetchEarthquakeData(); fetchCityRiskAndHeatmap(); }, 45000);
-            });
+        setHtml("turkeyWarningList", `<div class="status-error">${stripDecorative(data.message || "Turkey early warning could not be loaded.")}</div>`);
+        return;
     }
 
-    // İkinci harita: Son 1 Gün Depremler + Aktif Fay Hatları
-    function fetchEarthquakeData() {
-        initializeMap2(); 
+    const count = Number(data.cities_with_warnings || 0);
+    const summary = count > 0
+        ? `${count} city has active pre-event warning output.`
+        : "No active city warning at the current run.";
 
-        fetch(apiURL, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            mode: 'cors'
-        })
-            .then(response => {
-                if (!response.ok) {
-                    if (response.status === 503 || response.status === 502) {
-                        console.warn('Sunucu uyku modunda, cache verisi kullanılıyor');
-                        return null; // Hata fırlatma, sadece null döndür
-                    }
-                    throw new Error(`Sunucu hatası: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (!data) {
-                    console.warn('Veri alınamadı, harita boş kalabilir');
-                    return;
-                }
-                let bounds = [];
-                
-                // Hata kontrolü
-                if (data.error) {
-                    return;
-                }
-                
-                // 1. Aktif fay hatlarını haritaya ekle
-                if (data.fault_lines && data.fault_lines.length > 0) {
-                    data.fault_lines.forEach(fault => {
-                        const faultCoords = fault.coords.map(coord => [coord[0], coord[1]]);
-                        const polyline = L.polyline(faultCoords, {
-                            color: '#FF1744',  // Kırmızı
-                            weight: 4,
-                            opacity: 0.8,
-                            dashArray: '10, 5'  // Kesikli çizgi
-                        }).addTo(mymap2);
-                        polyline.bindPopup(`<b style="color: #FF1744;">${fault.name}</b><br>⚠️ Aktif Fay Hattı`);
-                        bounds.push(...faultCoords);
-                    });
-                }
-                
-                // 2. Son 1 günde olan depremleri haritaya ekle
-                if (data.recent_earthquakes && data.recent_earthquakes.length > 0) {
-                    data.recent_earthquakes.forEach((eq, index) => {
-                        if (eq.geojson && eq.geojson.coordinates) {
-                            const [lon, lat] = eq.geojson.coordinates;
-                            const mag = eq.mag || 0;
-                            const location = eq.location || 'Bilinmiyor';
-                            const date = eq.date || '';
-                            const time = eq.time || '';
-                            
-                            bounds.push([lat, lon]);
-                            
-                            // Büyüklüğe göre renk ve boyut
-                            let eqColor = '#2ecc71'; // Yeşil (düşük)
-                            let radius = 5;
-                            if (mag >= 5.0) {
-                                eqColor = '#FF1744'; // Kırmızı (yüksek)
-                                radius = 12;
-                            } else if (mag >= 4.0) {
-                                eqColor = '#f39c12'; // Turuncu (orta)
-                                radius = 8;
-                            } else if (mag >= 3.0) {
-                                eqColor = '#3498db'; // Mavi (düşük-orta)
-                                radius = 6;
-                            }
-                            
-                            // Deprem marker'ı
-                            const eqMarker = L.circleMarker([lat, lon], {
-                                radius: radius,
-                                color: '#000',
-                                fillColor: eqColor,
-                                fillOpacity: 0.8,
-                                weight: 2
-                            }).addTo(mymap2);
-                            
-                            const popupContent = `
-                                <b>📍 Deprem #${index + 1}</b><br>
-                                <b>Büyüklük: M${mag.toFixed(1)}</b><br>
-                                Konum: ${location}<br>
-                                Tarih: ${date} ${time}<br>
-                                Derinlik: ${eq.depth || 'N/A'} km
-                            `;
-                            eqMarker.bindPopup(popupContent);
-                        }
-                    });
-                }
-                
-                // Haritayı tüm işaretlere göre ayarla
-                if (bounds.length > 0) {
-                    mymap2.fitBounds(bounds, { padding: [50, 50] });
-                } else {
-                    mymap2.setView([39.9, 35.8], 6);
-                }
-                if (mymap2) mymap2.invalidateSize();
-            })
-            .catch(error => {
-                logApiError('fetchEarthquakeData', apiURL, error);
-                listContainer.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir.</p><p style="font-size:0.9em;color:#FFA726;">⏳ 45 saniye sonra otomatik yeniden denenecek...</p>`;
-                if (isCrossOrigin) setTimeout(() => { fetchRiskData(); fetchEarthquakeData(); fetchCityRiskAndHeatmap(); }, 45000);
-            });
+    const summaryEl = document.getElementById("turkeyWarningSummary");
+    if (summaryEl) {
+        summaryEl.className = `warning-level ${count > 0 ? "warning-high" : "warning-normal"}`;
+        summaryEl.textContent = summary;
     }
 
-    // Canlı YZ Risk Göstergeleri + Harita heatmap
-    let cityRiskData = null;
-    let cityHeatmapLayer = null;
-
-    function getRiskLevelClass(score) {
-        if (score >= 70) return 'risk-high';
-        if (score >= 30) return 'risk-mid';
-        return 'risk-low';
+    const activeWarnings = data.active_warnings || {};
+    const entries = Object.entries(activeWarnings);
+    if (!entries.length) {
+        setHtml("turkeyWarningList", `<div class="empty-state">The pre-event Turkey warning module is active, but no city is currently in ORTA or above.</div>`);
+        return;
     }
 
-    function getRiskLabel(score) {
-        if (score >= 70) return 'YÜKSEK';
-        if (score >= 50) return 'ORTA-YÜKSEK';
-        if (score >= 30) return 'ORTA';
-        if (score >= 15) return 'DÜŞÜK';
-        return 'MİNİMAL';
-    }
+    setHtml("turkeyWarningList", entries.map(([city, warning]) => `
+        <div class="warning-item">
+            <strong>${stripDecorative(city)}</strong><br>
+            Level ${stripDecorative(warning.alert_level || "Unknown")}<br>
+            Score ${formatFixed(warning.alert_score || 0, 2)}<br>
+            ${warning.predicted_magnitude != null ? `Predicted magnitude ${formatFixed(warning.predicted_magnitude, 1)}<br>` : ""}
+            ${stripDecorative(warning.message || "")}
+        </div>
+    `).join(""));
+}
 
-    function cityRisksToMap(cityRisks) {
-        const map = {};
-        (cityRisks || []).forEach(c => { map[c.city] = c; });
-        return map;
-    }
+async function loadWarnings() {
+    const [istanbulResult, turkeyResult] = await Promise.allSettled([
+        fetchJson("/api/istanbul-early-warning"),
+        fetchJson("/api/turkey-early-warning")
+    ]);
 
-    function updateRiskMeter(cityRisks) {
-        const grid = document.getElementById('riskMeterGrid');
-        if (!grid || !cityRisks) return;
-        const cities = ['İstanbul', 'Ankara', 'İzmir', 'Bursa', 'Kocaeli'];
-        const byCity = Array.isArray(cityRisks) ? cityRisksToMap(cityRisks) : cityRisks;
-        cities.forEach((cityName, i) => {
-            const item = grid.children[i];
-            if (!item) return;
-            const city = byCity[cityName];
-            if (city) {
-                const score = city.risk_score ?? city.total_risk_score ?? 0;
-                item.classList.remove('loading', 'risk-low', 'risk-mid', 'risk-high');
-                item.classList.add(getRiskLevelClass(score));
-                const valEl = item.querySelector('.risk-value');
-                if (valEl) valEl.textContent = getRiskLabel(score);
-            }
-        });
-    }
+    const istanbul = istanbulResult.status === "fulfilled"
+        ? istanbulResult.value
+        : {
+            alert_level: "ERROR",
+            alert_score: 0,
+            message: `Istanbul warning endpoint failed: ${stripDecorative(istanbulResult.reason?.message || "unknown error")}`,
+            recent_earthquakes: 0,
+            anomaly_detected: false
+        };
 
-    function addCityHeatmapOverlay(cityRisks) {
-        if (!mymap || !cityRisks) return;
-        if (cityHeatmapLayer) {
-            mymap.removeLayer(cityHeatmapLayer);
-            cityHeatmapLayer = null;
-        }
-        const layer = L.layerGroup();
-        const list = Array.isArray(cityRisks) ? cityRisks : Object.values(cityRisks || {});
-        for (const data of list) {
-            const cityName = data.city || data.name;
-            const lat = data.lat, lon = data.lon;
-            if (lat == null || lon == null) continue;
-            const score = data.risk_score ?? data.total_risk_score ?? 0;
-            let color = '#2ecc71';
-            if (score >= 70) color = '#e74c3c';
-            else if (score >= 30) color = '#f39c12';
-            const radius = 15000 + Math.min(score * 800, 50000);
-            L.circle([lat, lon], {
-                radius,
-                color,
-                fillColor: color,
-                fillOpacity: 0.25,
-                weight: 2
-            }).bindPopup(`<b>${cityName}</b><br>Risk: ${getRiskLabel(score)} (${score.toFixed(0)}/100)`).addTo(layer);
-        }
-        layer.addTo(mymap);
-        cityHeatmapLayer = layer;
-    }
+    const turkey = turkeyResult.status === "fulfilled"
+        ? turkeyResult.value
+        : {
+            cities_with_warnings: 0,
+            active_warnings: {},
+            status: "error",
+            message: `Turkey warning endpoint failed: ${stripDecorative(turkeyResult.reason?.message || "unknown error")}`
+        };
 
-    function fetchCityRiskAndHeatmap() {
-        fetch(`${RENDER_API_BASE_URL}/api/city-damage-analysis`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            mode: 'cors'
-        })
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-            if (data && data.city_risks) {
-                cityRiskData = data.city_risks;
-                updateRiskMeter(cityRiskData);
-                addCityHeatmapOverlay(cityRiskData);
-            }
-        })
-        .catch(error => {
-            logApiError('fetchCityRiskAndHeatmap', `${RENDER_API_BASE_URL}/api/city-damage-analysis`, error);
-        });
-    }
+    renderIstanbulWarning(istanbul || {});
+    renderTurkeyWarnings(turkey || {});
+    return { istanbul, turkey };
+}
 
-    function fetchPredictionMapData() {
-        if (!document.getElementById('mapid3')) return;
-        initializeMap3();
-        applyForecastLayerVisibility();
-        setForecastMapStatus('Sehir forecast verisi yukleniyor...');
+async function requestOptInLink() {
+    const result = document.getElementById("optInResult");
+    result.textContent = "Requesting opt-in link.";
 
-        fetch(`${RENDER_API_BASE_URL}/api/v2/forecast-map`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            mode: 'cors'
-        })
-            .then(response => {
-                if (!response.ok) throw new Error(`Sunucu hatası: ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                const points = data && data.points ? data.points : (data && data.prediction_points ? data.prediction_points : null);
-                if (!points || !points.length) {
-                    setForecastMapStatus('Forecast verisi bos dondu.', 'warn');
-                    return;
-                }
-
-                forecastCityPoints = points;
-                renderForecastCityPoints(points);
-                applyForecastLayerVisibility();
-
-                if (getForecastLayerPreferences().showGrid) {
-                    setForecastMapStatus('Sehirler hazir, grid katmani yukleniyor...', 'warn');
-                    fetchForecastGrid(RENDER_API_BASE_URL);
-                } else {
-                    setForecastMapStatus(`Sehir forecast verisi hazir (${points.length} nokta). Grid kapali.`, 'success');
-                }
-                return;
-
-                const bounds = [];
-                points.forEach(point => {
-                    if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
-
-                    const probPct = (Number(point.probability ?? 0) * 100);
-                    const color = getPredictionColor(probPct);
-                    const radius = Math.max(8, Math.min(24, 8 + (Number(point.risk_score ?? 0) * 10) / 6));
-                    bounds.push([point.lat, point.lon]);
-
-                    const marker = L.circleMarker([point.lat, point.lon], {
-                        radius: radius,
-                        color: color,
-                        fillColor: color,
-                        fillOpacity: 0.6,
-                        weight: 2
-                    }).addTo(mymap3);
-
-                    const featureHtml = (point.top_features || [])
-                        .map(f => `${f.name || f.feature}: ${Number(f.value ?? f.impact ?? 0).toFixed(3)}`)
-                        .join('<br>');
-                    marker.bindPopup(`
-                        <b style="color:${color};">${point.city}</b><br>
-                        Risk: <b>${Number(point.risk_score ?? 0).toFixed(2)}/10</b><br>
-                        Final Olasılık: <b>${(Number(point.probability ?? 0) * 100).toFixed(1)}%</b><br>
-                        ML: <b>${(Number(point.ml_probability ?? 0) * 100).toFixed(1)}%</b><br>
-                        ETAS: <b>${(Number(point.etas_probability ?? 0) * 100).toFixed(1)}%</b><br>
-                        LSTM: <b>${(Number(point.lstm_probability ?? 0) * 100).toFixed(1)}%</b><br>
-                        Cluster: <b>${(Number(point.cluster_score ?? 0) * 100).toFixed(1)}%</b><br>
-                        b-value: <b>${Number(point.b_value ?? 1).toFixed(2)}</b><br>
-                        b-risk: <b>${(Number(point.b_risk ?? 0) * 100).toFixed(1)}%</b><br>
-                        GNN: <b>${(Number(point.gnn_probability ?? 0) * 100).toFixed(1)}%</b><br>
-                        M>=5 / 72h: <b>${(Number(point.m5_72h_probability ?? 0) * 100).toFixed(1)}%</b><br>
-                        Max Mag / 7d: <b>${Number(point.max_mag_7d_prediction ?? 0).toFixed(2)}</b><br>
-                        Fay Segmenti: <b>${point.nearest_fault_segment || 'unknown'}</b><br>
-                        Fay Uzaklığı: <b>${Number(point.fault_distance ?? 999).toFixed(1)} km</b><br>
-                        Stress: <b>${(Number(point.stress_transfer ?? 0) * 100).toFixed(1)}%</b><br>
-                        Energy: <b>${Number(point.energy_release ?? 0).toFixed(2)}</b><br>
-                        Foreshock: <b>${point.foreshock_count ?? 0}</b><br>
-                        Anomali: <b>${point.anomaly_detected ? 'Var' : 'Yok'}</b><br>
-                        <hr><b>En etkili özellikler</b><br>${featureHtml || 'Yok'}
-                    `);
-                });
-
-                if (bounds.length > 0) mymap3.fitBounds(bounds, { padding: [50, 50] });
-                fetchForecastGrid(RENDER_API_BASE_URL);
-            })
-            .catch(error => {
-                console.error('Forecast map veri çekme hatası:', error);
-                setForecastMapStatus('V2 forecast verisi yuklenemedi, legacy fallback denenecek.', 'warn');
-                fetchPredictionMapDataFallback();
-            });
-    }
-
-    function fetchPredictionMapDataFallback() {
-        if (!mymap3) return;
-        fetch(`${RENDER_API_BASE_URL}/api/prediction-map`, { method: 'GET', mode: 'cors' })
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-                if (!data || !data.prediction_points) return;
-                const bounds = [];
-                data.prediction_points.forEach(point => {
-                    if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
-                    const riskValue = point.risk_percent ?? point.probability ?? 0;
-                    const color = getPredictionColor(riskValue);
-                    const radius = Math.max(8, Math.min(24, 8 + riskValue / 6));
-                    bounds.push([point.lat, point.lon]);
-                    const marker = L.circleMarker([point.lat, point.lon], {
-                        radius, color, fillColor: color, fillOpacity: 0.6, weight: 2
-                    }).addTo(mymap3);
-                    marker.bindPopup(`
-                        <b>${point.city}</b><br>
-                        Legacy Risk: <b>%${riskValue}</b><br>
-                        Analiz Penceresi: <b>${point.analysis_window || 'Son 48 saat'}</b><br>
-                        Maks. Büyüklük: <b>${(point.max_magnitude != null && typeof point.max_magnitude === 'number') ? point.max_magnitude.toFixed(2) : (point.max_magnitude ?? '—')}</b><br>
-                        En Yakın Mesafe: <b>${point.min_distance ?? '—'} km</b><br>
-                        Anomali: <b>${point.anomaly_detected ? 'Var' : 'Yok'}</b>
-                    `);
-                });
-                if (bounds.length > 0) mymap3.fitBounds(bounds, { padding: [50, 50] });
-                setForecastMapStatus('Legacy forecast goruntulendi. V2 endpoint kontrol edilmeli.', 'warn');
-            })
-            .catch(() => {});
-    }
-
-    function fetchForecastGrid(base) {
-        if (!mymap3) return;
-        if (!getForecastLayerPreferences().showGrid) {
-            if (forecastGridLayer) forecastGridLayer.clearLayers();
-            applyForecastLayerVisibility();
-            return;
-        }
-        if (forecastGridPoints.length) {
-            renderForecastGridPoints(forecastGridPoints);
-            applyForecastLayerVisibility();
-            setForecastMapStatus(`Grid katmani hazir (${forecastGridPoints.length} nokta).`, 'success');
+    try {
+        const data = await fetchJson("/api/get-opt-in-link");
+        if (!data.success) {
+            result.innerHTML = `<span class="status-error">${stripDecorative(data.message || "Opt-in link could not be created.")}</span>`;
             return;
         }
 
-        setForecastMapStatus('Grid katmani yukleniyor, bu kisim biraz uzun surebilir...', 'warn');
-        fetch(`${base}/api/v2/forecast-grid`, { method: 'GET', mode: 'cors' })
-            .then(r => r.json())
-            .then(data => {
-                if (!data || !data.points || !mymap3) return;
-                forecastGridPoints = data.points;
-                renderForecastGridPoints(forecastGridPoints);
-                applyForecastLayerVisibility();
-                setForecastMapStatus(`Grid katmani hazir (${forecastGridPoints.length} nokta).`, 'success');
-                return;
-                data.points.forEach(point => {
-                    const p = Number(point.probability || 0);
-                    const color = p >= 0.60 ? '#FF1744' : p >= 0.35 ? '#ff9800' : p >= 0.15 ? '#ffd54f' : '#2ecc71';
-                    const marker = L.circleMarker([point.lat, point.lon], {
-                        radius: 3,
-                        color: color,
-                        fillColor: color,
-                        fillOpacity: 0.08,
-                        weight: 1
-                    }).addTo(mymap3);
-                    marker.bindPopup(`
-                        <b>Grid Noktası</b><br>
-                        Risk: ${Number(point.risk_score || 0).toFixed(2)}/10<br>
-                        Olasılık: ${(Number(point.probability || 0) * 100).toFixed(1)}%<br>
-                        ML: ${(Number(point.ml_probability || 0) * 100).toFixed(1)}%<br>
-                        ETAS: ${(Number(point.etas_probability || 0) * 100).toFixed(1)}%<br>
-                        LSTM: ${(Number(point.lstm_probability || 0) * 100).toFixed(1)}%<br>
-                        Cluster: ${(Number(point.cluster_score || 0) * 100).toFixed(1)}%<br>
-                        b-value: ${Number(point.b_value || 1).toFixed(2)}<br>
-                        b-risk: ${(Number(point.b_risk || 0) * 100).toFixed(1)}%<br>
-                        GNN: ${(Number(point.gnn_probability || 0) * 100).toFixed(1)}%<br>
-                        M>=5 / 72h: ${(Number(point.m5_72h_probability || 0) * 100).toFixed(1)}%<br>
-                        Max Mag / 7d: ${Number(point.max_mag_7d_prediction || 0).toFixed(2)}<br>
-                        Fay Segmenti: ${point.nearest_fault_segment || 'unknown'}<br>
-                        Fay Uzaklığı: ${Number(point.fault_distance || 999).toFixed(1)} km<br>
-                        Stress: ${(Number(point.stress_transfer || 0) * 100).toFixed(1)}%
-                    `);
-                });
-            })
-            .catch(err => {
-                console.error('forecast-grid error:', err);
-                setForecastMapStatus('Grid katmani yuklenemedi.', 'error');
-            });
-    }
-
-    function fetchData() {
-        fetchRiskData();
-        fetchEarthquakeData();
-        fetchCityRiskAndHeatmap();
-        loadDashboard();
-        fetchPredictionMapData();
-    }
-
-    // Dashboard: ML, M≥5, Şehir listesi
-    function loadDashboard() {
-        const base = typeof RENDER_API_BASE_URL !== 'undefined' ? RENDER_API_BASE_URL : (window.location.hostname.includes('github.io') ? 'https://depremanaliz.onrender.com' : window.location.origin);
-        loadMLMetrics(base);
-        loadM5Risk(base);
-        loadCityRisk(base);
-        updatePredictionHistoryDisplay();
-    }
-
-    function renderCalibrationChart(calibration) {
-        const xs = Array.isArray(calibration?.prob_pred) ? calibration.prob_pred : [];
-        const ys = Array.isArray(calibration?.prob_true) ? calibration.prob_true : [];
-        if (!xs.length || !ys.length || xs.length !== ys.length) {
-            return '<div style="color: rgba(255,255,255,0.65);">Calibration verisi yok.</div>';
-        }
-
-        const width = 260;
-        const height = 180;
-        const padding = 24;
-        const scaleX = value => padding + Math.max(0, Math.min(1, Number(value || 0))) * (width - padding * 2);
-        const scaleY = value => height - padding - Math.max(0, Math.min(1, Number(value || 0))) * (height - padding * 2);
-        const points = xs.map((x, index) => `${scaleX(x)},${scaleY(ys[index])}`).join(' ');
-        const circles = xs.map((x, index) => `<circle cx="${scaleX(x)}" cy="${scaleY(ys[index])}" r="3" fill="#ffb703"></circle>`).join('');
-
-        return `
-            <div style="margin-top: 14px;">
-                <div style="font-weight: 600; margin-bottom: 8px;">Calibration Curve</div>
-                <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="Calibration curve">
-                    <rect x="0" y="0" width="${width}" height="${height}" fill="rgba(255,255,255,0.03)" rx="10"></rect>
-                    <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${padding}" stroke="rgba(255,255,255,0.25)" stroke-dasharray="4 4"></line>
-                    <polyline points="${points}" fill="none" stroke="#8ecae6" stroke-width="2.5"></polyline>
-                    ${circles}
-                    <text x="${padding}" y="${height - 6}" fill="rgba(255,255,255,0.65)" font-size="10">Predicted</text>
-                    <text x="8" y="${padding - 6}" fill="rgba(255,255,255,0.65)" font-size="10">True</text>
-                </svg>
-            </div>
+        result.innerHTML = `
+            <div><strong>WhatsApp number:</strong> ${stripDecorative(data.test_number || "")}</div>
+            <div><a href="${data.opt_in_link}" target="_blank" rel="noopener">Open opt-in link</a></div>
+            <p>${stripDecorative(data.message || "")}</p>
         `;
+    } catch (error) {
+        result.innerHTML = `<span class="status-error">Opt-in request failed: ${stripDecorative(error.message)}</span>`;
+    }
+}
+
+function extractAlertCoordinates() {
+    const lat = Number(document.getElementById("alertLat")?.value || 0);
+    const lon = Number(document.getElementById("alertLon")?.value || 0);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (!lat && !lon) return null;
+    return { lat, lon };
+}
+
+async function saveGeneralAlert() {
+    const status = document.getElementById("alertFormStatus");
+    const number = (document.getElementById("alertNumber")?.value || "").trim();
+    const coords = extractAlertCoordinates() || state.location;
+
+    if (!number) {
+        status.innerHTML = `<span class="status-error">Phone number is required.</span>`;
+        return;
+    }
+    if (!coords) {
+        status.innerHTML = `<span class="status-error">Latitude and longitude are required for the general alert.</span>`;
+        return;
     }
 
-    function loadMLMetrics(base) {
-        const el = document.getElementById('mlMetricsContent');
-        if (!el) return;
-
-        fetch(`${base}/api/v2/forecast-metrics`, { method: 'GET', mode: 'cors' })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    const m = data.metrics || {};
-                    const backtest = data.backtest || {};
-                    const calibration = data.calibration || {};
-                    const topImportance = (data.feature_importance || [])
-                        .slice(0, 5)
-                        .map(f => `${f.name || f.feature}: ${Number(f.value ?? f.importance ?? 0).toFixed(2)}`)
-                        .join('<br>');
-                    const roc = Number(m.roc_auc_mean ?? m.roc_auc ?? 0);
-                    const rocStd = m.roc_auc_std;
-                    const pr = Number(m.pr_auc_mean ?? m.pr_auc ?? 0);
-                    const prStd = m.pr_auc_std;
-                    const brier = Number(m.brier_mean ?? m.brier ?? 0);
-                    const brierStd = m.brier_std;
-                    const samples = Number(m.samples ?? m.samples_test ?? 0);
-                    const calibrationHtml = renderCalibrationChart(calibration);
-                    const interpretation = describeForecastQuality(m, backtest);
-                    const targetPrimary = data.targets?.primary || 'm4_24h';
-                    const targetAux = Array.isArray(data.targets?.auxiliary) ? data.targets.auxiliary.join(', ') : 'Yok';
-                    el.innerHTML = `
-                        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:15px;">
-                            <div><strong>Model:</strong> ${data.model_type || 'forecast_hybrid_v3_timeseriescv'}</div>
-                            <div><strong>Eğitim:</strong> ${data.trained_at ? new Date(data.trained_at).toLocaleString('tr-TR') : 'N/A'}</div>
-                            <div><strong>Ana hedef:</strong> ${targetPrimary}</div>
-                            <div><strong>Yardimci hedefler:</strong> ${targetAux}</div>
-                            <div><strong>ROC-AUC:</strong> ${roc.toFixed(3)}${rocStd != null ? ` +/- ${Number(rocStd).toFixed(3)}` : ''}</div>
-                            <div><strong>PR-AUC:</strong> ${pr.toFixed(3)}${prStd != null ? ` +/- ${Number(prStd).toFixed(3)}` : ''}</div>
-                            <div><strong>Brier:</strong> ${brier.toFixed(4)}${brierStd != null ? ` +/- ${Number(brierStd).toFixed(4)}` : ''}</div>
-                            <div><strong>Pozitif oran:</strong> ${(m.positive_rate ?? 0).toFixed(3)}</div>
-                            <div><strong>Örnek sayısı:</strong> ${samples}</div>
-                            <div><strong>Backtest hit:</strong> ${((Number(backtest.hit_rate || 0)) * 100).toFixed(1)}%</div>
-                            <div><strong>Calibration bin:</strong> ${(calibration.prob_true || []).length}</div>
-                            <div style="grid-column:1 / -1;"><strong>Dogruluk ozeti:</strong> ${interpretation}</div>
-                            <div style="grid-column:1 / -1;"><strong>Global importance:</strong><br>${topImportance || 'Yok'}</div>
-                            <div style="grid-column:1 / -1;">${calibrationHtml}</div>
-                        </div>
-                    `;
-                } else if (data.status === 'no_model') {
-                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Forecast modeli bulunamadı. Önce forecast eğitimi çalıştır.</p>';
-                } else {
-                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Forecast metrikleri alınamadı.</p>';
-                }
-            })
-            .catch(error => {
-                logApiError('loadMLMetrics', `${base}/api/v2/forecast-metrics`, error);
-                el.innerHTML = `<p style="color: #FF1744;">Forecast metrikleri yüklenemedi. (${error.message})</p>`;
-            });
-    }
-
-    function loadM5Risk(base) {
-        const el = document.getElementById('m5RiskContent');
-        if (!el) return;
-        fetch(`${base}/api/turkey-early-warning`, { method: 'GET', mode: 'cors' })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'error') {
-                    el.innerHTML = `<p style="color: #FF1744;">${data.message || 'Hata'}</p>`;
-                    return;
-                }
-                const active = data.active_warnings || {};
-                const count = data.cities_with_warnings || 0;
-                if (count === 0) {
-                    el.innerHTML = '<p style="color: #2ecc71; font-weight: 600;">✅ Şu anda M ≥ 5.0 deprem riski tespit edilmedi.</p>';
-                    return;
-                }
-                let html = `<p style="margin-bottom: 15px;"><strong>${count}</strong> ilde uyarı var:</p>`;
-                Object.entries(active).forEach(([city, w]) => {
-                    const c = w.alert_level === 'KRİTİK' ? '#e74c3c' : w.alert_level === 'YÜKSEK' ? '#e67e22' : '#f39c12';
-                    html += `<div class="m5-warning-item"><strong>${city}</strong> - ${w.alert_level} (M${w.predicted_magnitude || '?'}) - ${w.message}</div>`;
-                });
-                el.innerHTML = html;
-            })
-            .catch(error => {
-                logApiError('loadM5Risk', `${base}/api/turkey-early-warning`, error);
-                el.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. (${error.message})</p>`;
-            });
-    }
-
-    function loadCityRisk(base) {
-        const el = document.getElementById('cityRiskContent');
-        if (!el) return;
-        fetch(`${base}/api/city-damage-analysis`, { method: 'GET', mode: 'cors' })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status !== 'success' || !data.city_risks || !data.city_risks.length) {
-                    el.innerHTML = '<p style="color: rgba(255,255,255,0.7);">Veri yüklenemedi veya boş.</p>';
-                    return;
-                }
-                let html = '';
-                data.city_risks.forEach(c => {
-                    const cls = c.risk_score >= 50 ? 'risk-high' : c.risk_score >= 30 ? 'risk-mid' : 'risk-low';
-                    html += `<div class="city-risk-item ${cls}"><span>${c.city}</span><span><strong>${c.risk_score.toFixed(1)}</strong> - ${c.risk_level}</span></div>`;
-                });
-                el.innerHTML = html;
-            })
-            .catch(error => {
-                logApiError('loadCityRisk', `${base}/api/city-damage-analysis`, error);
-                el.innerHTML = `<p style="color: #FF1744;">Sunucuya bağlanılamadı. (${error.message})</p>`;
-            });
-    }
-
-    function updatePredictionHistoryDisplay() {
-        const el = document.getElementById('predictionHistoryContent');
-        if (!el) return;
-        if (!predictionHistory.length) {
-            el.innerHTML = '<p class="empty-text">Henüz tahmin yapılmadı. "Risk Tahmini" butonunu kullanın.</p>';
-            return;
-        }
-        el.innerHTML = predictionHistory.slice(-10).reverse().map(p => `
-            <div class="prediction-item">
-                <strong>${p.city || 'Konum'}</strong> - Skor: ${p.score}/10 (${p.level}) - ${p.time}
-            </div>
-        `).join('');
-    }
-
-    function addToPredictionHistory(data) {
-        const city = data.nearest_city || 'Bilinmeyen';
-        predictionHistory.push({
-            city,
-            score: data.risk_score,
-            level: data.risk_level || 'Bilinmiyor',
-            time: new Date().toLocaleString('tr-TR')
-        });
-        updatePredictionHistoryDisplay();
-    }
-
-    // Modelleri Eğit butonu
-    const trainModelsBtn = document.getElementById('trainModelsBtn');
-    if (trainModelsBtn) {
-        trainModelsBtn.addEventListener('click', () => {
-            trainModelsBtn.disabled = true;
-            trainModelsBtn.textContent = '⏳ Eğitiliyor...';
-            fetch(`${RENDER_API_BASE_URL}/api/train-models`, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' } })
-                .then(r => r.json())
-                .then(data => {
-                    trainModelsBtn.disabled = false;
-                    trainModelsBtn.textContent = '🔄 Modelleri Eğit';
-                    if (data.status === 'success') {
-                        loadMLMetrics(RENDER_API_BASE_URL);
-                        openModal('🤖 Model Eğitimi', `<div style="padding: 20px; text-align: center;"><p style="color: #2ecc71;">✅ ${data.message}</p><p>Versiyon: ${data.model_version || 'N/A'}</p></div>`);
-                    } else {
-                        openModal('🤖 Model Eğitimi', `<div style="padding: 20px; color: #FF1744;"><p>${data.message || data.error || 'Hata'}</p></div>`);
-                    }
-                })
-                .catch(error => {
-                    logApiError('trainModels', `${RENDER_API_BASE_URL}/api/train-models`, error);
-                    trainModelsBtn.disabled = false;
-                    trainModelsBtn.textContent = '🔄 Modelleri Eğit';
-                    openModal('🤖 Model Eğitimi', `<div style="padding: 20px; color: #FF1744;"><p>Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p></div>`);
-                });
-        });
-    }
-
-    // Şehir listesi yenile butonu
-    const refreshCityRiskBtn = document.getElementById('refreshCityRiskBtn');
-    if (refreshCityRiskBtn) {
-        refreshCityRiskBtn.addEventListener('click', () => {
-            loadCityRisk(RENDER_API_BASE_URL);
-            fetchCityRiskAndHeatmap();
-        });
-    } 
-
-    // Konum Alma Fonksiyonu
-    getLocationButton.addEventListener('click', () => {
-        if (!navigator.geolocation) {
-            locationStatus.textContent = 'Hata: Tarayıcınız konum servisini desteklemiyor.';
-            return;
-        }
-
-        locationStatus.textContent = 'Konumunuz tespit ediliyor...';
-
-        navigator.geolocation.getCurrentPosition(position => {
-            userCoords = {
-                lat: position.coords.latitude,
-                lon: position.coords.longitude
-            };
-            locationStatus.innerHTML = `✅ Konum Tespit Edildi!<br>Enlem: ${userCoords.lat.toFixed(4)}, Boylam: ${userCoords.lon.toFixed(4)}`;
-        }, error => {
-            locationStatus.textContent = `Hata: Konum izni verilmedi veya hata oluştu. (${error.message})`;
-            userCoords = null;
-        });
-    });
-
-    // Ayarları Kaydetme (Backend'e POST) Fonksiyonu
-    saveSettingsButton.addEventListener('click', () => {
-        const number = numberInput.value; 
-        
-        if (!userCoords) {
-            alert('Lütfen önce "Konumumu Otomatik Belirle" butonuna basarak konumunuzu tespit edin.');
-            return;
-        }
-        if (!number || !number.startsWith('+')) { 
-            alert('Lütfen geçerli bir telefon numarası (ülke kodu ile, Örn: +905xxxxxxxx) girin.');
-            return;
-        }
-        
-        // Mutlak URL ile POST isteği gönderiliyor.
-        fetch(`${RENDER_API_BASE_URL}/api/set-alert`, {
-            mode: 'cors',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+    status.textContent = "Saving general alert registration.";
+    try {
+        const data = await fetchJson("/api/set-alert", {
+            method: "POST",
             body: JSON.stringify({
-                lat: userCoords.lat,
-                lon: userCoords.lon,
-                number: number 
-            }),
-        })
-        .then(response => {
-            // 404/Ağ hatalarını yakalar
-            if (!response.ok) { 
-                 throw new Error(`Sunucu Hatası: ${response.status}. Render loglarını kontrol edin.`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                // Başarı mesajı + Sandbox rehberi
-                locationStatus.innerHTML = `
-                    <div style="background-color: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; color: #2ecc71; padding: 15px; border-radius: 8px; margin-top: 10px;">
-                        <p style="margin: 0; font-weight: 600;">✅ ${data.message}</p>
-                        <div style="margin-top: 15px; padding: 10px; background-color: rgba(255, 193, 7, 0.2); border-radius: 5px;">
-                            <p style="margin: 5px 0; font-size: 0.9em; color: #FFC107;">
-                                ⚠️ <strong>ÖNEMLİ - WhatsApp Sandbox'a Katılın (ÜCRETSİZ):</strong>
-                            </p>
-                            <p style="margin: 5px 0; font-size: 0.85em;">
-                                Bildirim alabilmek için numaranızı Twilio WhatsApp Sandbox'a eklemeniz gerekiyor. Bu işlem <strong>ücretsizdir</strong> ve sadece bir kez yapılır.
-                            </p>
-                            <ol style="margin: 10px 0; padding-left: 20px; font-size: 0.85em;">
-                                <li><a href="https://console.twilio.com" target="_blank" style="color: #FFC107;">Twilio Console</a>'a gidin</li>
-                                <li><strong>Messaging</strong> > <strong>Try it out</strong> > <strong>Send a WhatsApp message</strong></li>
-                                <li><strong>"Join code"</strong> kısmındaki kodu kopyalayın (örn: <code>join abc-xyz</code>)</li>
-                                <li>WhatsApp'tan <strong>+1 415 523 8886</strong> numarasına bu kodu gönderin</li>
-                                <li>Onay mesajı gelecek: <strong>"You're all set!"</strong></li>
-                            </ol>
-                            <p style="margin: 10px 0 0 0; font-size: 0.8em; color: var(--color-light-text);">
-                                💡 Bu işlem sadece bir kez yapılır. Sandbox'a katıldıktan sonra tüm bildirimleri alabilirsiniz!
-                            </p>
-                        </div>
-                    </div>
-                `;
-                numberInput.value = '';
-            } else {
-                locationStatus.innerHTML = `<p style="color: #FF1744;">❌ Hata: ${data.message || 'Bildirim ayarları kaydedilemedi'}</p>`;
-            }
-        })
-        .catch(error => {
-            logApiError('set-alert', `${RENDER_API_BASE_URL}/api/set-alert`, error);
-            locationStatus.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p>`;
+                number,
+                lat: coords.lat,
+                lon: coords.lon
+            })
         });
-    });
+        status.innerHTML = `<span class="status-ok">${stripDecorative(data.message || "General alert registration saved.")}</span>`;
+    } catch (error) {
+        status.innerHTML = `<span class="status-error">General alert registration failed: ${stripDecorative(error.message)}</span>`;
+    }
+}
 
-    // Meta WhatsApp Opt-In Link
-    if (getOptInLinkButton) {
-        getOptInLinkButton.addEventListener('click', () => {
-            getOptInLinkButton.disabled = true;
-            getOptInLinkButton.textContent = '⏳ Link Yükleniyor...';
-            
-            fetch(`${API_URL}/api/get-opt-in-link`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
-                mode: 'cors'
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                getOptInLinkButton.disabled = false;
-                getOptInLinkButton.textContent = '🔗 Session Açma Linkini Al';
-                
-                if (data.success && data.opt_in_link) {
-                    optInLink.href = data.opt_in_link;
-                    optInLink.textContent = data.opt_in_link;
-                    optInLinkDisplay.style.display = 'block';
-                    
-                    // Modal ile detaylı talimatlar göster
-                    const instructions = data.instructions ? data.instructions.map(step => `<li style="margin: 8px 0; text-align: left;">${step}</li>`).join('') : '';
-                    openModal('📱 WhatsApp Session Açma (Opt-In)', `
-                        <div style="text-align: center; padding: 20px;">
-                            <h3 style="margin-bottom: 20px; color: #ffffff;">Session Açın ve Bildirimleri Alın</h3>
-                            <div style="background: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; border-radius: 15px; padding: 20px; margin: 20px 0;">
-                                <p style="margin: 0 0 15px 0; color: #2ecc71; font-weight: 600; font-size: 1.1em;">
-                                    ✅ Bu işlem sadece bir kez yapılır!
-                                </p>
-                                <a href="${data.opt_in_link}" target="_blank" style="display: inline-block; background: #2ecc71; color: white; padding: 15px 30px; border-radius: 10px; text-decoration: none; font-weight: 600; margin: 10px 0;">
-                                    🔗 WhatsApp'ta Aç ve "basla" Yaz
-                                </a>
-                            </div>
-                            ${instructions ? `
-                                <div style="background: rgba(52, 73, 94, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 20px; margin: 20px 0; text-align: left;">
-                                    <h4 style="margin: 0 0 15px 0; color: #ffffff; font-size: 1.1em;">📋 Adım Adım:</h4>
-                                    <ol style="margin: 0; padding-left: 20px; color: rgba(255, 255, 255, 0.9); line-height: 1.8;">
-                                        ${instructions}
-                                    </ol>
-                                </div>
-                            ` : ''}
-                            <div style="background: rgba(243, 156, 18, 0.2); border: 1px solid #f39c12; border-radius: 10px; padding: 15px; margin: 20px 0;">
-                                <p style="margin: 0; color: #f39c12; font-size: 0.95em;">
-                                    ⚠️ ÖNEMLİ: Session açtıktan sonra 24 saat boyunca serbest metin bildirimleri alabilirsiniz!
-                                </p>
-                                <p style="margin: 10px 0 0 0; color: rgba(243, 156, 18, 0.9); font-size: 0.85em;">
-                                    💡 24 saat sonra tekrar session açmanız gerekebilir (Meta WhatsApp kuralları).
-                                </p>
-                            </div>
-                        </div>
-                    `);
-                } else {
-                    openModal('📱 Opt-In Link Hatası', `
-                        <div style="text-align: center; padding: 20px;">
-                            <p style="color: #FF1744;">${data.message || 'Opt-in linki alınamadı.'}</p>
-                            <p style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-top: 10px;">
-                                Meta WhatsApp API ayarları yapılmamış olabilir.
-                            </p>
-                        </div>
-                    `);
-                }
-            })
-            .catch(error => {
-                logApiError('get-opt-in-link', `${API_URL}/api/get-opt-in-link`, error);
-                getOptInLinkButton.disabled = false;
-                getOptInLinkButton.textContent = '🔗 Session Açma Linkini Al';
-                openModal('📱 Opt-In Link Hatası', `
-                    <div style="text-align: center; padding: 20px;">
-                        <p style="color: #FF1744;">Opt-in linki alınamadı.</p>
-                        <p style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-top: 10px;">
-                            Hata: ${error.message}
-                        </p>
-                    </div>
-                `);
-            });
-        });
+async function saveIstanbulAlert() {
+    const status = document.getElementById("alertFormStatus");
+    const number = (document.getElementById("alertNumber")?.value || "").trim();
+    const coords = extractAlertCoordinates() || state.location || {};
+
+    if (!number) {
+        status.innerHTML = `<span class="status-error">Phone number is required.</span>`;
+        return;
     }
 
-    // Manuel hasar tahmini kaldırıldı - otomatik il bazında analiz kullanılıyor
-    
-    // Risk Tahmini
-    predictRiskButton.addEventListener('click', () => {
-        if (!userCoords) {
-            openModal('🔮 AI Risk Tahmini', '<div style="text-align: center; padding: 20px; color: #FF1744;"><p>⚠️ Lütfen önce "Konumumu Otomatik Belirle" butonuna basarak konumunuzu tespit edin.</p></div>');
-            return;
-        }
-        
-        openModal('🔮 AI Risk Tahmini', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">Risk tahmini yapılıyor...</p><p style="font-size: 0.85em; opacity: 0.7; margin-top: 10px;">İlk istek 50-60 saniye sürebilir (sunucu uyandırılıyor).</p></div>');
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 saniye timeout
-        
-        fetch(`${RENDER_API_BASE_URL}/api/predict-risk`, {
-            mode: 'cors',
-            method: 'POST',
-            signal: controller.signal,
-            headers: {
-                'Content-Type': 'application/json',
-            },
+    status.textContent = "Saving Istanbul alert registration.";
+    try {
+        const data = await fetchJson("/api/istanbul-alert", {
+            method: "POST",
             body: JSON.stringify({
-                lat: userCoords.lat,
-                lon: userCoords.lon,
-                use_ml: true
-            }),
-        })
-        .then(response => {
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                throw new Error(`Sunucu hatası: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.error) {
-                openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
-                return;
-            }
-            
-            if (data.risk_score === undefined) {
-                openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: Geçersiz veri formatı.</p></div>`);
-                return;
-            }
-            
-            let riskColor = '#2ecc71';
-            if (data.risk_score >= 7.0) riskColor = '#e74c3c';
-            else if (data.risk_score >= 5.0) riskColor = '#e67e22';
-            else if (data.risk_score >= 3.0) riskColor = '#f39c12';
-            
-            let detailsHtml = '';
-            if (data.method === 'ml_ensemble' && data.features) {
-                detailsHtml = `
-                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 15px; padding: 20px; margin-top: 20px;">
-                        <p style="margin: 0 0 15px 0; font-size: 1.1em; font-weight: 600;">🤖 ML Model Tahminleri:</p>
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;">
-                            ${data.model_predictions ? `
-                                <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                                    <p style="margin: 0; font-size: 0.85em; opacity: 0.8;">Random Forest</p>
-                                    <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.model_predictions.random_forest || 'N/A'}/10</p>
-                                </div>
-                                <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                                    <p style="margin: 0; font-size: 0.85em; opacity: 0.8;">XGBoost</p>
-                                    <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.model_predictions.xgboost || 'N/A'}/10</p>
-                                </div>
-                                <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                                    <p style="margin: 0; font-size: 0.85em; opacity: 0.8;">LightGBM</p>
-                                    <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.model_predictions.lightgbm || 'N/A'}/10</p>
-                                </div>
-                            ` : ''}
-                        </div>
-                        <p style="margin: 15px 0 10px 0; font-size: 1em; font-weight: 600;">📊 Özellikler:</p>
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
-                            <p style="margin: 5px 0;">• Toplam Deprem: <strong>${data.features.count || 0}</strong></p>
-                            <p style="margin: 5px 0;">• Maksimum Büyüklük: <strong>M${data.features.max_magnitude?.toFixed(1) || 'N/A'}</strong></p>
-                            <p style="margin: 5px 0;">• En Yakın Mesafe: <strong>${data.features.min_distance?.toFixed(1) || 'N/A'} km</strong></p>
-                            <p style="margin: 5px 0;">• Aktivite Yoğunluğu: <strong>${data.features.activity_density?.toFixed(4) || 'N/A'}</strong></p>
-                        </div>
-                        ${data.anomaly ? `
-                            <div style="margin-top: 20px; padding: 15px; background: rgba(243, 156, 18, 0.2); border-left: 4px solid #f39c12; border-radius: 10px;">
-                                <p style="margin: 0 0 10px 0; font-size: 1em; font-weight: 600;">⚠️ Anomali Tespiti:</p>
-                                <p style="margin: 5px 0; font-size: 0.9em;">Anomali Skoru: <strong>${data.anomaly.anomaly_score || 0}/1.0</strong></p>
-                                <p style="margin: 5px 0; font-size: 0.9em;">Tespit Edildi: <strong>${data.anomaly.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</strong></p>
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            } else if (data.factors) {
-                detailsHtml = `
-                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 15px; padding: 20px; margin-top: 20px;">
-                        <p style="margin: 0 0 15px 0; font-size: 1em; font-weight: 600;">📊 Detaylar:</p>
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
-                            <p style="margin: 5px 0;">• En Büyük Deprem: <strong>M${data.factors.max_magnitude || 'N/A'}</strong></p>
-                            <p style="margin: 5px 0;">• Son 24 Saatteki: <strong>${data.factors.recent_count || 0}</strong></p>
-                            <p style="margin: 5px 0;">• Ortalama Mesafe: <strong>${data.factors.avg_distance || 'N/A'} km</strong></p>
-                            <p style="margin: 5px 0;">• En Yakın Fay: <strong>${data.factors.nearest_fault_km || 'N/A'} km</strong></p>
-                        </div>
-                    </div>
-                `;
-            }
-            
-            addToPredictionHistory(data);
-            openModal('🔮 AI Risk Tahmini', `
-                <div style="background: linear-gradient(135deg, ${riskColor} 0%, ${riskColor}dd 100%); border-radius: 20px; padding: 30px; text-align: center; margin-bottom: 20px;">
-                    <h3 style="margin: 0 0 15px 0; font-size: 2rem; font-weight: 800;">Risk Seviyesi: ${data.risk_level || 'Bilinmiyor'}</h3>
-                    <div style="font-size: 3rem; font-weight: 900; margin: 20px 0;">${data.risk_score || 0}/10</div>
-                    <p style="margin: 10px 0; font-size: 1.1em; opacity: 0.95;">${data.method === 'ml_ensemble' ? '🤖 Gelişmiş ML (Ensemble)' : (data.method === 'traditional' ? '📊 Geleneksel' : '📊 Standart')}</p>
-                    ${data.reason ? `<p style="margin: 15px 0 0 0; font-size: 1em; opacity: 0.9;">${data.reason}</p>` : ''}
-                </div>
-                ${detailsHtml}
-            `);
-        })
-        .catch(error => {
-            clearTimeout(timeoutId);
-            logApiError('predict-risk', `${RENDER_API_BASE_URL}/api/predict-risk`, error);
-            const retryMsg = `<p style="margin-top:15px;"><button id="retryPredictBtn" class="btn-modern btn-primary">🔄 Tekrar Dene</button></p><p style="font-size:0.85em;margin-top:10px;">45 sn sonra otomatik yeniden denenecek.</p>`;
-            openModal('🔮 AI Risk Tahmini', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir (30-60 sn).</p>${retryMsg}</div>`);
-            setTimeout(() => document.getElementById('retryPredictBtn')?.addEventListener('click', () => predictRiskButton.click()), 100);
-            setTimeout(() => predictRiskButton.click(), 45000);
+                number,
+                lat: coords.lat,
+                lon: coords.lon
+            })
         });
-    });
-    
-    // İl Bazında Hasar Analizi
-    analyzeCityDamageButton.addEventListener('click', () => {
-        openModal('🏙️ İl Bazında Risk Analizi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">İl bazında hasar analizi yapılıyor...</p></div>');
-        
-        fetch(`${RENDER_API_BASE_URL}/api/city-damage-analysis`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            mode: 'cors'
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    openModal('🏙️ İl Bazında Risk Analizi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
-                    return;
-                }
-                
-                if (data.status === 'error' || !data.city_risks || data.city_risks.length === 0) {
-                    openModal('🏙️ İl Bazında Risk Analizi', `
-                        <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.2) 0%, rgba(39, 174, 96, 0.2) 100%); border: 2px solid #2ecc71; border-radius: 15px; padding: 25px; text-align: center;">
-                            <h3 style="margin: 0 0 15px 0; color: #2ecc71; font-size: 1.5rem;">✅ İyi Haber!</h3>
-                            <p style="margin: 0; color: rgba(255, 255, 255, 0.9); font-size: 1.1em;">${data.message}</p>
-                        </div>
-                    `);
-                    return;
-                }
-                
-                let html = `
-                    <div style="background: linear-gradient(135deg, rgba(52, 73, 94, 0.3) 0%, rgba(44, 62, 80, 0.3) 100%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 20px; margin-bottom: 20px;">
-                        <h3 style="margin: 0 0 15px 0; color: #ffffff; font-size: 1.3rem;">📊 Analiz Sonuçları</h3>
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
-                            <div style="text-align: center;">
-                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Toplam Deprem</p>
-                                <p style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #FF1744;">${data.total_earthquakes}</p>
-                            </div>
-                            <div style="text-align: center;">
-                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Analiz Edilen İl</p>
-                                <p style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #9D4EDD;">${data.analyzed_cities}</p>
-                            </div>
-                            <div style="text-align: center;">
-                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Risk Durumu</p>
-                                <p style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #00E5FF;">Aktif</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">
-                `;
-                
-                data.city_risks.forEach((city, index) => {
-                    let levelColor = '#95a5a6';
-                    if (city.risk_score >= 70) levelColor = '#e74c3c';
-                    else if (city.risk_score >= 50) levelColor = '#e67e22';
-                    else if (city.risk_score >= 30) levelColor = '#f39c12';
-                    else if (city.risk_score >= 15) levelColor = '#3498db';
-                    
-                    html += `
-                        <div style="background: linear-gradient(135deg, ${levelColor} 0%, ${levelColor}dd 100%); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 15px; padding: 20px; margin-bottom: 15px; backdrop-filter: blur(10px);">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                                <h4 style="margin: 0; font-size: 1.3em; font-weight: 700;">${index + 1}. ${city.city}</h4>
-                                <div style="background: rgba(0, 0, 0, 0.3); padding: 8px 15px; border-radius: 20px; font-weight: 700; font-size: 1.1em;">${city.risk_score.toFixed(1)}/100</div>
-                            </div>
-                            <p style="margin: 0 0 15px 0; font-size: 1.1em; font-weight: 600;">Seviye: ${city.risk_level}</p>
-                            <p style="margin: 0 0 15px 0; font-size: 0.95em; opacity: 0.95;">${city.description}</p>
-                            <div style="background: rgba(0, 0, 0, 0.2); border-radius: 10px; padding: 15px; margin-top: 15px;">
-                                <p style="margin: 0 0 10px 0; font-size: 0.95em; font-weight: 600;">📊 Risk Faktörleri:</p>
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.85em;">
-                                    <p style="margin: 5px 0;">• Deprem Riski: <strong>${city.factors.earthquake_risk.toFixed(1)}</strong></p>
-                                    <p style="margin: 5px 0;">• Fay Hattı Riski: <strong>${city.factors.fault_risk.toFixed(1)}</strong></p>
-                                    <p style="margin: 5px 0;">• Aktivite Skoru: <strong>${city.factors.activity_score.toFixed(1)}</strong></p>
-                                    <p style="margin: 5px 0;">• En Yakın Fay: <strong>${city.factors.nearest_fault_distance.toFixed(1)} km</strong></p>
-                                </div>
-                                ${city.building_risk_analysis ? `
-                                    <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid rgba(255,255,255,0.3);">
-                                        <p style="margin: 0 0 10px 0; font-size: 0.95em; font-weight: 600;">🏗️ Bina Risk Analizi:</p>
-                                        <p style="margin: 5px 0; font-size: 0.9em;">Hasar Skoru: <strong>${city.building_risk_analysis.damage_score}/100</strong> - ${city.building_risk_analysis.damage_level}</p>
-                                        <p style="margin: 5px 0; font-size: 0.85em; opacity: 0.9;">${city.building_risk_analysis.damage_description}</p>
-                                    </div>
-                                ` : ''}
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                html += '</div>';
-                openModal('🏙️ İl Bazında Risk Analizi', html);
-            })
-            .catch(error => {
-                logApiError('city-damage-analysis', `${RENDER_API_BASE_URL}/api/city-damage-analysis`, error);
-                const retryMsg = `<p style="margin-top:15px;"><button id="retryCityBtn" class="btn-modern btn-primary">🔄 Tekrar Dene</button></p><p style="font-size:0.85em;margin-top:10px;">45 sn sonra otomatik yeniden denenecek.</p>`;
-                openModal('🏙️ İl Bazında Risk Analizi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir.</p>${retryMsg}</div>`);
-                setTimeout(() => document.getElementById('retryCityBtn')?.addEventListener('click', () => analyzeCityDamageButton.click()), 100);
-                setTimeout(() => analyzeCityDamageButton.click(), 45000);
-            });
-    });
-    
-    // Tüm Türkiye Erken Uyarı Sistemi
-    const checkTurkeyWarningButton = document.getElementById('checkTurkeyWarningButton');
-    const turkeyWarningResult = document.getElementById('turkeyWarningResult');
-    
-    function doTurkeyWarning(retryCount = 0) {
-        openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">Tüm Türkiye erken uyarı durumu kontrol ediliyor...</p><p style="font-size:0.85em;opacity:0.7;">İlk istek 30-60 sn sürebilir.</p></div>');
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 120000);
-        fetch(`${RENDER_API_BASE_URL}/api/turkey-early-warning`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            mode: 'cors',
-            signal: controller.signal
-        })
-            .then(response => {
-                clearTimeout(timeoutId);
-                if (!response.ok) throw new Error(`Sunucu hatası: ${response.status}`);
-                return response.json();
-            })
-                .then(data => {
-                    if (data.status === 'error') {
-                        openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.message || 'Bilinmeyen hata'}</p></div>`);
-                        return;
-                    }
-                    
-                    let html = `
-                        <div style="background: linear-gradient(135deg, rgba(52, 73, 94, 0.3) 0%, rgba(44, 62, 80, 0.3) 100%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 20px; margin-bottom: 20px;">
-                            <h3 style="margin: 0 0 15px 0; color: #ffffff; font-size: 1.3rem;">📊 Analiz Sonuçları</h3>
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                                <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
-                                    <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Analiz Edilen İl</p>
-                                    <p style="margin: 5px 0 0 0; font-size: 1.8em; font-weight: 700; color: #9D4EDD;">${data.total_cities_analyzed}</p>
-                                </div>
-                                <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.05); border-radius: 10px;">
-                                    <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Uyarı Veren İl</p>
-                                    <p style="margin: 5px 0 0 0; font-size: 1.8em; font-weight: 700; color: #FF1744;">${data.cities_with_warnings}</p>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    
-                    if (data.cities_with_warnings === 0) {
-                        html += `
-                            <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.3) 0%, rgba(39, 174, 96, 0.3) 100%); border: 2px solid #2ecc71; border-radius: 20px; padding: 30px; text-align: center;">
-                                <h3 style="margin: 0 0 15px 0; color: #2ecc71; font-size: 1.8rem;">✅ İyi Haber!</h3>
-                                <p style="margin: 0; color: rgba(255, 255, 255, 0.95); font-size: 1.1em;">Şu anda tüm Türkiye'de M ≥ 5.0 deprem riski tespit edilmedi.</p>
-                            </div>
-                        `;
-                    } else {
-                        html += '<div style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">';
-                        
-                        Object.entries(data.active_warnings || {}).forEach(([city, warning]) => {
-                            let alertColor = '#2ecc71';
-                            if (warning.alert_level === 'KRİTİK') alertColor = '#e74c3c';
-                            else if (warning.alert_level === 'YÜKSEK') alertColor = '#e67e22';
-                            else if (warning.alert_level === 'ORTA') alertColor = '#f39c12';
-                            
-                            html += `
-                                <div style="background: linear-gradient(135deg, ${alertColor} 0%, ${alertColor}dd 100%); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 15px; padding: 20px; margin-bottom: 15px; backdrop-filter: blur(10px);">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                                        <h4 style="margin: 0; font-size: 1.4em; font-weight: 700;">🚨 ${city.toUpperCase()}</h4>
-                                        <div style="background: rgba(0, 0, 0, 0.3); padding: 8px 15px; border-radius: 20px; font-weight: 700;">${warning.alert_level}</div>
-                                    </div>
-                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
-                                        <div>
-                                            <p style="margin: 0; font-size: 0.9em; opacity: 0.9;">Tahmini Büyüklük</p>
-                                            <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">M${warning.predicted_magnitude || 'N/A'}</p>
-                                        </div>
-                                        <div>
-                                            <p style="margin: 0; font-size: 0.9em; opacity: 0.9;">Uyarı Skoru</p>
-                                            <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${warning.alert_score}/1.0</p>
-                                        </div>
-                                    </div>
-                                    <p style="margin: 0 0 15px 0; font-size: 1.1em; font-weight: 600;">Tahmini Süre: ${warning.time_to_event || 'Bilinmiyor'}</p>
-                                    <p style="margin: 0 0 15px 0; font-size: 0.95em; opacity: 0.95;">${warning.message}</p>
-                                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 10px; padding: 15px;">
-                                        <p style="margin: 0 0 10px 0; font-size: 0.9em; font-weight: 600;">📊 Detaylar:</p>
-                                        <p style="margin: 5px 0; font-size: 0.85em;">• Son deprem sayısı: <strong>${warning.recent_earthquakes}</strong></p>
-                                        <p style="margin: 5px 0; font-size: 0.85em;">• Anomali tespit edildi: <strong>${warning.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</strong></p>
-                                    </div>
-                                </div>
-                            `;
-                        });
-                        
-                        html += '</div>';
-                    }
-                    
-                    openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', html);
-                })
-                .catch(error => {
-                    logApiError('turkey-early-warning', `${RENDER_API_BASE_URL}/api/turkey-early-warning`, error);
-                    const retryMsg = retryCount < 2 ? `<p style="margin-top:15px;"><button id="retryTurkeyBtn" class="btn-modern btn-primary">🔄 Tekrar Dene</button></p><p style="font-size:0.85em;margin-top:10px;">45 sn sonra otomatik yeniden denenecek.</p>` : '';
-                    openModal('🇹🇷 Tüm Türkiye Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir (30-60 sn).</p>${retryMsg}</div>`);
-                    if (retryCount < 2) {
-                        setTimeout(() => document.getElementById('retryTurkeyBtn')?.addEventListener('click', () => doTurkeyWarning(retryCount + 1)), 100);
-                        setTimeout(() => doTurkeyWarning(retryCount + 1), 45000);
-                    }
-                });
+        const warning = data.warning ? `<div>${stripDecorative(data.warning)}</div>` : "";
+        status.innerHTML = `<span class="status-ok">${stripDecorative(data.message || "Istanbul alert registration saved.")}</span>${warning}`;
+    } catch (error) {
+        status.innerHTML = `<span class="status-error">Istanbul alert registration failed: ${stripDecorative(error.message)}</span>`;
     }
-    
-    if (checkTurkeyWarningButton) {
-        checkTurkeyWarningButton.addEventListener('click', () => doTurkeyWarning(0));
+}
+
+function useBrowserLocation() {
+    const status = document.getElementById("alertFormStatus");
+    if (!navigator.geolocation) {
+        status.innerHTML = `<span class="status-error">Geolocation is not supported in this browser.</span>`;
+        return;
     }
 
-    // İstanbul Erken Uyarı Sistemi
-    function doIstanbulWarning(retryCount = 0) {
-        openModal('🏛️ İstanbul Erken Uyarı Sistemi', '<div style="text-align: center; padding: 40px;"><div class="loading"></div><p style="margin-top: 20px;">İstanbul erken uyarı durumu kontrol ediliyor...</p><p style="font-size:0.85em;opacity:0.7;">İlk istek 30-60 sn sürebilir.</p></div>');
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 120000);
-        fetch(`${RENDER_API_BASE_URL}/api/istanbul-early-warning`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            mode: 'cors',
-            signal: controller.signal
-        })
-            .then(response => {
-                clearTimeout(timeoutId);
-                if (!response.ok) throw new Error(`Sunucu hatası: ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                if (data.error) {
-                    openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>Hata: ${data.error}</p></div>`);
-                    return;
-                }
-                
-                let alertColor = '#2ecc71';
-                if (data.alert_level === 'KRİTİK') alertColor = '#e74c3c';
-                else if (data.alert_level === 'YÜKSEK') alertColor = '#e67e22';
-                else if (data.alert_level === 'ORTA') alertColor = '#f39c12';
-                
-                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `
-                    <div style="background: linear-gradient(135deg, ${alertColor} 0%, ${alertColor}dd 100%); border-radius: 20px; padding: 30px; text-align: center; margin-bottom: 20px;">
-                        <h3 style="margin: 0 0 20px 0; font-size: 2.2rem; font-weight: 900;">${data.alert_level} UYARI</h3>
-                        <div style="font-size: 3rem; font-weight: 900; margin: 20px 0;">${data.alert_score}/1.0</div>
-                        <p style="margin: 15px 0; font-size: 1.2em; font-weight: 600; opacity: 0.95;">${data.message}</p>
-                        ${data.time_to_event ? `<p style="margin: 15px 0 0 0; font-size: 1.1em; font-weight: 700;">⏰ Tahmini Süre: ${data.time_to_event}</p>` : ''}
-                    </div>
-                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 15px; padding: 20px;">
-                        <p style="margin: 0 0 15px 0; font-size: 1.1em; font-weight: 600;">📊 Detaylar:</p>
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 15px;">
-                            <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Son 48 Saatteki Deprem</p>
-                                <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.recent_earthquakes}</p>
-                            </div>
-                            <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                                <p style="margin: 0; font-size: 0.9em; opacity: 0.8;">Anomali Tespiti</p>
-                                <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: 700;">${data.anomaly_detected ? '✅ Evet' : '❌ Hayır'}</p>
-                            </div>
-                        </div>
-                        ${data.features ? `
-                            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.2);">
-                                <p style="margin: 0 0 15px 0; font-size: 1em; font-weight: 600;">🔍 Özellikler:</p>
-                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em;">
-                                    <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                                        <p style="margin: 0; opacity: 0.8;">Maksimum Büyüklük</p>
-                                        <p style="margin: 5px 0 0 0; font-weight: 700;">M${data.features.max_magnitude?.toFixed(1) || 'N/A'}</p>
-                                    </div>
-                                    <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                                        <p style="margin: 0; opacity: 0.8;">Toplam Deprem</p>
-                                        <p style="margin: 5px 0 0 0; font-weight: 700;">${data.features.count || 0}</p>
-                                    </div>
-                                    <div style="text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                                        <p style="margin: 0; opacity: 0.8;">En Yakın Mesafe</p>
-                                        <p style="margin: 5px 0 0 0; font-weight: 700;">${data.features.min_distance?.toFixed(1) || 'N/A'} km</p>
-                                    </div>
-                                </div>
-                            </div>
-                        ` : ''}
-                    </div>
-                `);
-            })
-            .catch(error => {
-                logApiError('istanbul-early-warning', `${RENDER_API_BASE_URL}/api/istanbul-early-warning`, error);
-                const retryMsg = retryCount < 2 ? `<p style="margin-top:15px;"><button id="retryIstanbulBtn" class="btn-modern btn-primary">🔄 Tekrar Dene</button></p><p style="font-size:0.85em;margin-top:10px;">45 sn sonra otomatik yeniden denenecek.</p>` : '';
-                openModal('🏛️ İstanbul Erken Uyarı Sistemi', `<div style="color: #FF1744; padding: 20px; text-align: center;"><p>⚠️ Sunucuya bağlanılamadı. Sunucu uyanıyor olabilir (30-60 sn).</p>${retryMsg}</div>`);
-                if (retryCount < 2) {
-                    setTimeout(() => document.getElementById('retryIstanbulBtn')?.addEventListener('click', () => doIstanbulWarning(retryCount + 1)), 100);
-                    setTimeout(() => doIstanbulWarning(retryCount + 1), 45000);
-                }
-            });
-    }
-    checkIstanbulWarningButton.addEventListener('click', () => doIstanbulWarning(0));
-
-    // İstanbul WhatsApp Bildirim Formu
-    const istanbulNumberInput = document.getElementById('istanbulNumberInput');
-    const saveIstanbulAlertButton = document.getElementById('saveIstanbulAlertButton');
-    const istanbulAlertResult = document.getElementById('istanbulAlertResult');
-
-    if (saveIstanbulAlertButton && istanbulNumberInput && istanbulAlertResult) {
-        saveIstanbulAlertButton.addEventListener('click', () => {
-            const number = istanbulNumberInput.value.trim();
-            
-            if (!number) {
-                istanbulAlertResult.innerHTML = '<p style="color: #FF1744;">⚠️ Lütfen WhatsApp numaranızı girin.</p>';
-                istanbulAlertResult.style.display = 'block';
-                return;
-            }
-            
-            if (!number.startsWith('+')) {
-                istanbulAlertResult.innerHTML = '<p style="color: #FF1744;">⚠️ Telefon numarası ülke kodu ile başlamalıdır. Örnek: +90532xxxxxxx</p>';
-                istanbulAlertResult.style.display = 'block';
-                return;
-            }
-            
-            istanbulAlertResult.innerHTML = '<p>İstanbul erken uyarı bildirimleri kaydediliyor...</p>';
-            istanbulAlertResult.style.display = 'block';
-            saveIstanbulAlertButton.disabled = true;
-            saveIstanbulAlertButton.textContent = '⏳ Kaydediliyor...';
-            
-            fetch(`${RENDER_API_BASE_URL}/api/istanbul-alert`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                mode: 'cors',
-                body: JSON.stringify({
-                    number: number
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        let resultHtml = `
-                            <div style="background-color: rgba(46, 204, 113, 0.2); border: 2px solid #2ecc71; color: #2ecc71; padding: 15px; border-radius: 8px;">
-                                <p style="margin: 0; font-weight: 600;">✅ ${data.message}</p>
-                                <p style="margin: 10px 0 0 0; font-size: 0.9em;">Deprem öncesi sinyaller tespit edildiğinde size WhatsApp ile bildirim gönderilecektir.</p>
-                            </div>
-                        `;
-                        
-                        // Eğer uyarı mesajı varsa (örn: HTTP 429 rate limit)
-                        if (data.warning) {
-                            resultHtml += `
-                                <div style="background-color: rgba(255, 193, 7, 0.2); border: 2px solid #FFC107; color: #FFC107; padding: 15px; border-radius: 8px; margin-top: 15px;">
-                                    <p style="margin: 0; font-weight: 600;">⚠️ ${data.warning}</p>
-                                    ${data.warning.includes('429') || data.warning.includes('limit') ? `
-                                        <p style="margin: 10px 0 0 0; font-size: 0.85em; opacity: 0.9;">
-                                            💡 <strong>Çözüm:</strong> Twilio ücretsiz planında günlük 50 mesaj limiti vardır. 
-                                            Limit yarın sıfırlanacak. Bildirimler kaydedildi, ancak onay mesajı gönderilemedi. 
-                                            Sistem normal çalışmaya devam edecek.
-                                        </p>
-                                    ` : ''}
-                                </div>
-                            `;
-                        }
-                        
-                        istanbulAlertResult.innerHTML = resultHtml;
-                        istanbulNumberInput.value = '';
-                    } else {
-                        istanbulAlertResult.innerHTML = `<p style="color: #FF1744;">❌ Hata: ${data.message || 'Bildirim kaydedilemedi'}</p>`;
-                    }
-                    saveIstanbulAlertButton.disabled = false;
-                    saveIstanbulAlertButton.textContent = '🔔 İstanbul Erken Uyarı Bildirimlerini Aktifleştir';
-                })
-                .catch(error => {
-                    logApiError('istanbul-alert', `${RENDER_API_BASE_URL}/api/istanbul-alert`, error);
-                    istanbulAlertResult.innerHTML = `<p style="color: #FF1744;">⚠️ Sunucuya bağlanılamadı. (${error.message})</p><p style="font-size:0.85em;opacity:0.8;">F12 konsolunda [API HATA] loglarını kontrol edin.</p>`;
-                    saveIstanbulAlertButton.disabled = false;
-                    saveIstanbulAlertButton.textContent = '🔔 İstanbul Erken Uyarı Bildirimlerini Aktifleştir';
-                });
-        });
-    }
-
-    refreshButton.addEventListener('click', fetchData);
-    
-    // İlk yüklemede her iki haritayı da başlat
-    fetchData();
-
-    document.getElementById('forecastCityToggle')?.addEventListener('change', () => {
-        applyForecastLayerVisibility();
-        if (!getForecastLayerPreferences().showCities && !getForecastLayerPreferences().showGrid) {
-            setForecastMapStatus('Tum forecast katmanlari gizlendi.', 'warn');
-        } else if (getForecastLayerPreferences().showGrid && forecastGridPoints.length) {
-            setForecastMapStatus(`Grid katmani hazir (${forecastGridPoints.length} nokta).`, 'success');
-        } else if (forecastCityPoints.length) {
-            setForecastMapStatus(`Sehir forecast verisi hazir (${forecastCityPoints.length} nokta).`, 'success');
+    status.textContent = "Reading browser location.";
+    navigator.geolocation.getCurrentPosition(
+        position => {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            state.location = { lat, lon };
+            document.getElementById("alertLat").value = lat.toFixed(6);
+            document.getElementById("alertLon").value = lon.toFixed(6);
+            status.innerHTML = `<span class="status-ok">Location captured as ${lat.toFixed(4)}, ${lon.toFixed(4)}.</span>`;
+        },
+        error => {
+            status.innerHTML = `<span class="status-error">Location could not be read: ${stripDecorative(error.message)}</span>`;
         }
-    });
+    );
+}
 
-    document.getElementById('forecastGridToggle')?.addEventListener('change', (event) => {
-        applyForecastLayerVisibility();
+async function refreshDashboard({ reloadGrid = false } = {}) {
+    let metricsPayload = null;
+    let warningsPayload = { turkey: { cities_with_warnings: 0 } };
+
+    try {
+        metricsPayload = await loadMetrics();
+    } catch (error) {
+        setHtml("qualityNarrative", `<p class="status-error">Metrics could not be loaded: ${stripDecorative(error.message)}</p>`);
+    }
+
+    warningsPayload = await loadWarnings();
+
+    try {
+        await loadForecastCities();
+    } catch (error) {
+        setText("forecastMapStatus", `Forecast refresh failed: ${stripDecorative(error.message)}`);
+        return;
+    }
+
+    if (metricsPayload) {
+        updateSummary(metricsPayload, warningsPayload.turkey);
+        renderNarrative(metricsPayload.metrics || {}, metricsPayload.backtest || {}, metricsPayload.targets || {});
+    } else {
+        setText("summaryWarningState", Number(warningsPayload.turkey?.cities_with_warnings || 0) > 0 ? "Warning active" : "Warning ready");
+        setText("summaryWarningNote", "Forecast map is available even if metrics failed.");
+    }
+
+    if (document.getElementById("toggleGridLayer")?.checked) {
+        try {
+            await loadForecastGrid(reloadGrid);
+        } catch (error) {
+            setText("forecastMapStatus", `Grid load failed: ${stripDecorative(error.message)}`);
+        }
+    } else {
+        state.gridLayer.clearLayers();
+        syncLayerVisibility();
+    }
+}
+
+function bindEvents() {
+    document.getElementById("refreshForecastButton")?.addEventListener("click", () => refreshDashboard({ reloadGrid: true }));
+    document.getElementById("toggleCityLayer")?.addEventListener("change", syncLayerVisibility);
+    document.getElementById("toggleGridLayer")?.addEventListener("change", async event => {
+        syncLayerVisibility();
         if (event.target.checked) {
-            fetchForecastGrid(RENDER_API_BASE_URL);
+            await loadForecastGrid(false);
         } else {
-            setForecastMapStatus('Grid katmani gizlendi.', 'warn');
+            setText("forecastMapStatus", "Grid layer hidden. City forecast remains visible.");
         }
     });
 
-    // Chatbot
-    const chatbotToggle = document.getElementById('chatbotToggle');
-    const chatbotWindow = document.getElementById('chatbotWindow');
-    const closeChatbot = document.getElementById('closeChatbot');
-    const chatbotMessages = document.getElementById('chatbotMessages');
-    const chatbotInput = document.getElementById('chatbotInput');
-    const chatbotSend = document.getElementById('chatbotSend');
-
-    chatbotToggle.addEventListener('click', () => {
-        chatbotWindow.classList.toggle('active');
+    document.getElementById("refreshIstanbulWarning")?.addEventListener("click", async () => {
+        const data = await fetchJson("/api/istanbul-early-warning");
+        renderIstanbulWarning(data || {});
     });
 
-    closeChatbot.addEventListener('click', () => {
-        chatbotWindow.classList.remove('active');
+    document.getElementById("refreshTurkeyWarning")?.addEventListener("click", async () => {
+        const data = await fetchJson("/api/turkey-early-warning");
+        renderTurkeyWarnings(data || {});
     });
 
-    function addMessage(text, isUser = false) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
-        messageDiv.innerHTML = `<div class="message-bubble">${text}</div>`;
-        chatbotMessages.appendChild(messageDiv);
-        chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
-    }
+    document.getElementById("getOptInLinkButton")?.addEventListener("click", requestOptInLink);
+    document.getElementById("saveGeneralAlertButton")?.addEventListener("click", saveGeneralAlert);
+    document.getElementById("saveIstanbulAlertButton")?.addEventListener("click", saveIstanbulAlert);
+    document.getElementById("useLocationButton")?.addEventListener("click", useBrowserLocation);
 
-    function sendChatbotMessage() {
-        const message = chatbotInput.value.trim();
-        if (!message) return;
-
-        addMessage(message, true);
-        chatbotInput.value = '';
-
-        // Loading indicator
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'message bot';
-        loadingDiv.innerHTML = '<div class="message-bubble"><span class="loading"></span> Düşünüyorum...</div>';
-        chatbotMessages.appendChild(loadingDiv);
-        chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
-
-        // Send to backend
-        fetch(`${API_URL}/api/chatbot`, {
-            mode: 'cors',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ message: message })
-        })
-        .then(response => response.json())
-        .then(data => {
-            loadingDiv.remove();
-            addMessage(data.response || 'Üzgünüm, bir hata oluştu.');
-        })
-        .catch(error => {
-            logApiError('chatbot', `${API_URL}/api/chatbot`, error);
-            loadingDiv.remove();
-            addMessage(`Bağlantı hatası: ${error.message}. Lütfen tekrar deneyin.`);
-            console.error('Chatbot hatası:', error);
-        });
-    }
-
-    chatbotSend.addEventListener('click', sendChatbotMessage);
-    chatbotInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            sendChatbotMessage();
-        }
+    window.addEventListener("resize", () => {
+        if (state.map) state.map.invalidateSize();
     });
+}
 
-    // WhatsApp QR kod sistemi kaldırıldı - sadece Twilio kullanılıyor
+document.addEventListener("DOMContentLoaded", () => {
+    initMap();
+    bindEvents();
+    refreshDashboard();
 });

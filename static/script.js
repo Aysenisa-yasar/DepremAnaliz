@@ -27,6 +27,10 @@ function logApiError(apiName, url, error, response) {
 let mymap = null; 
 let mymap2 = null;
 let mymap3 = null;
+let forecastCityLayer = null;
+let forecastGridLayer = null;
+let forecastCityPoints = [];
+let forecastGridPoints = [];
 
 // Leaflet self-hosted: icon path (Tracking Prevention için CDN yerine local)
 if (typeof L !== 'undefined') {
@@ -73,11 +77,15 @@ function initializeMap3() {
         mymap3.remove();
         mymap3 = null;
     }
+    forecastCityLayer = null;
+    forecastGridLayer = null;
     mymap3 = L.map('mapid3').setView([39.9, 35.8], 6);
     L.tileLayer(
         'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
         { maxZoom: 19, attribution: '© OpenStreetMap contributors © CARTO' }
     ).addTo(mymap3);
+    forecastCityLayer = L.layerGroup().addTo(mymap3);
+    forecastGridLayer = L.layerGroup();
     [50, 200, 500, 1000].forEach(ms => setTimeout(() => mymap3 && mymap3.invalidateSize(), ms));
     setTimeout(() => { if (mymap3) mymap3.invalidateSize(); }, 200);
 }
@@ -93,6 +101,192 @@ function getRiskColor(score) {
     if (score >= 7.0) return 'red'; 
     if (score >= 4.0) return 'orange'; 
     return 'green'; 
+}
+
+function formatPercent(value) {
+    return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function formatFixed(value, digits = 2, fallback = '0.00') {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toFixed(digits) : fallback;
+}
+
+function setForecastMapStatus(message, tone = 'muted') {
+    const el = document.getElementById('forecastMapStatus');
+    if (!el) return;
+    el.textContent = message;
+    el.style.color = tone === 'error'
+        ? '#FF8A80'
+        : tone === 'success'
+            ? '#7CFFB2'
+            : tone === 'warn'
+                ? '#FFD166'
+                : 'rgba(255,255,255,0.75)';
+}
+
+function getForecastLayerPreferences() {
+    return {
+        showCities: document.getElementById('forecastCityToggle')?.checked !== false,
+        showGrid: !!document.getElementById('forecastGridToggle')?.checked
+    };
+}
+
+function applyForecastLayerVisibility() {
+    if (!mymap3) return;
+    const prefs = getForecastLayerPreferences();
+
+    if (forecastCityLayer) {
+        if (prefs.showCities && !mymap3.hasLayer(forecastCityLayer)) {
+            forecastCityLayer.addTo(mymap3);
+        } else if (!prefs.showCities && mymap3.hasLayer(forecastCityLayer)) {
+            mymap3.removeLayer(forecastCityLayer);
+        }
+    }
+
+    if (forecastGridLayer) {
+        if (prefs.showGrid && !mymap3.hasLayer(forecastGridLayer)) {
+            forecastGridLayer.addTo(mymap3);
+        } else if (!prefs.showGrid && mymap3.hasLayer(forecastGridLayer)) {
+            mymap3.removeLayer(forecastGridLayer);
+        }
+    }
+}
+
+function formatEnsembleWeights(weights) {
+    const items = Object.entries(weights || {});
+    if (!items.length) return 'Yok';
+    return items
+        .map(([key, value]) => `${String(key).toUpperCase()}: ${(Number(value || 0) * 100).toFixed(0)}%`)
+        .join(' | ');
+}
+
+function fallbackFeatureHtml(features) {
+    if (!features || typeof features !== 'object') return 'Yok';
+    const preferredKeys = [
+        'count',
+        'max_mag',
+        'min_distance',
+        'recent_24h_count',
+        'fault_distance',
+        'recency_energy',
+        'stress_transfer',
+        'spatial_density'
+    ];
+    const lines = preferredKeys
+        .filter(key => features[key] != null)
+        .slice(0, 5)
+        .map(key => `${key}: ${Number(features[key] || 0).toFixed(key.includes('count') ? 0 : 3)}`);
+    return lines.join('<br>') || 'Yok';
+}
+
+function buildForecastPopup(point, kind = 'city') {
+    const title = point.city || (kind === 'grid' ? 'Grid noktasi' : 'Forecast noktasi');
+    const featureHtml = Array.isArray(point.top_features) && point.top_features.length
+        ? point.top_features
+            .map(f => `${f.name || f.feature}: ${Number(f.value ?? f.impact ?? 0).toFixed(3)}`)
+            .join('<br>')
+        : fallbackFeatureHtml(point.features);
+    const anomalyHtml = point.anomaly_score != null
+        ? `Anomali skoru: <b>${formatFixed(point.anomaly_score, 2, '0.00')}</b><br>`
+        : '';
+    const energyHtml = point.energy_release != null
+        ? `Energy: <b>${formatFixed(point.energy_release, 2, '0.00')}</b><br>`
+        : '';
+    const foreshockHtml = point.foreshock_count != null
+        ? `Foreshock: <b>${Number(point.foreshock_count || 0)}</b><br>`
+        : '';
+    const densityHtml = point.spatial_density != null
+        ? `Spatial density: <b>${formatFixed(point.spatial_density, 3, '0.000')}</b><br>`
+        : '';
+    const trendHtml = point.mag_trend != null
+        ? `Mag trend: <b>${formatFixed(point.mag_trend, 2, '0.00')}</b><br>`
+        : '';
+
+    return `
+        <b>${title}</b><br>
+        Risk: <b>${formatFixed(point.risk_score, 2, '0.00')}/10</b><br>
+        Final olasilik: <b>${formatPercent(point.probability)}</b><br>
+        ML: <b>${formatPercent(point.ml_probability)}</b><br>
+        ETAS: <b>${formatPercent(point.etas_probability)}</b><br>
+        LSTM: <b>${formatPercent(point.lstm_probability)}</b><br>
+        Cluster: <b>${formatPercent(point.cluster_score)}</b><br>
+        b-value: <b>${formatFixed(point.b_value, 2, '1.00')}</b><br>
+        b-risk: <b>${formatPercent(point.b_risk)}</b><br>
+        GNN: <b>${formatPercent(point.gnn_probability)}</b><br>
+        M>=5 / 72h: <b>${formatPercent(point.m5_72h_probability)}</b><br>
+        Max Mag / 7d: <b>${formatFixed(point.max_mag_7d_prediction, 2, '0.00')}</b><br>
+        Signal event: <b>${Number(point.signal_event_count || 0)}</b><br>
+        Fay segmenti: <b>${point.nearest_fault_segment || 'unknown'}</b><br>
+        Fay uzakligi: <b>${formatFixed(point.fault_distance, 1, '999.0')} km</b><br>
+        Stress: <b>${formatPercent(point.stress_transfer)}</b><br>
+        ${energyHtml}
+        ${foreshockHtml}
+        ${densityHtml}
+        ${trendHtml}
+        ${anomalyHtml}
+        Model: <b>${point.model_type || 'forecast_hybrid_v3_timeseriescv'}</b><br>
+        Ensemble: <b>${formatEnsembleWeights(point.ensemble_weights)}</b><br>
+        <hr><b>Onemli ozellikler</b><br>${featureHtml || 'Yok'}
+    `;
+}
+
+function renderForecastCityPoints(points) {
+    if (!forecastCityLayer) return;
+    forecastCityLayer.clearLayers();
+
+    const bounds = [];
+    points.forEach(point => {
+        if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
+        const probPct = Number(point.probability || 0) * 100;
+        const color = getPredictionColor(probPct);
+        const radius = Math.max(8, Math.min(24, 8 + (Number(point.risk_score || 0) * 10) / 6));
+        bounds.push([point.lat, point.lon]);
+
+        const marker = L.circleMarker([point.lat, point.lon], {
+            radius,
+            color,
+            fillColor: color,
+            fillOpacity: 0.72,
+            weight: 2.5
+        }).addTo(forecastCityLayer);
+        marker.bindPopup(buildForecastPopup(point, 'city'));
+    });
+
+    if (bounds.length > 0 && mymap3) {
+        mymap3.fitBounds(bounds, { padding: [50, 50] });
+    }
+}
+
+function renderForecastGridPoints(points) {
+    if (!forecastGridLayer) return;
+    forecastGridLayer.clearLayers();
+
+    points.forEach(point => {
+        if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
+        const probability = Number(point.probability || 0);
+        const color = probability >= 0.60 ? '#FF1744' : probability >= 0.35 ? '#ff9800' : probability >= 0.15 ? '#ffd54f' : '#2ecc71';
+        const marker = L.circleMarker([point.lat, point.lon], {
+            radius: 4,
+            color,
+            fillColor: color,
+            fillOpacity: 0.16,
+            weight: 1
+        }).addTo(forecastGridLayer);
+        marker.bindPopup(buildForecastPopup(point, 'grid'));
+    });
+}
+
+function describeForecastQuality(metrics, backtest) {
+    const roc = Number(metrics.roc_auc_mean ?? metrics.roc_auc ?? 0);
+    const pr = Number(metrics.pr_auc_mean ?? metrics.pr_auc ?? 0);
+    const brier = Number(metrics.brier_mean ?? metrics.brier ?? 1);
+    const hit = Number(backtest.hit_rate || 0);
+
+    const rankingLabel = roc >= 0.75 ? 'guclu' : roc >= 0.65 ? 'orta' : 'sinirli';
+    const calibrationLabel = brier <= 0.08 ? 'iyi' : brier <= 0.15 ? 'orta' : 'zayif';
+
+    return `Canli ekranda gorulen ana skor M>=4 / 24h tahminidir. Ayrim gucu ${rankingLabel}, olasilik kalibrasyonu ${calibrationLabel}; geriye donuk hit ${(hit * 100).toFixed(1)}%, ROC-AUC ${roc.toFixed(3)}, PR-AUC ${pr.toFixed(3)}.`;
 }
 
 // Modern Modal System - Global functions
@@ -493,6 +687,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function fetchPredictionMapData() {
         if (!document.getElementById('mapid3')) return;
         initializeMap3();
+        applyForecastLayerVisibility();
+        setForecastMapStatus('Sehir forecast verisi yukleniyor...');
 
         fetch(`${RENDER_API_BASE_URL}/api/v2/forecast-map`, {
             method: 'GET',
@@ -505,7 +701,22 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .then(data => {
                 const points = data && data.points ? data.points : (data && data.prediction_points ? data.prediction_points : null);
-                if (!points || !points.length) return;
+                if (!points || !points.length) {
+                    setForecastMapStatus('Forecast verisi bos dondu.', 'warn');
+                    return;
+                }
+
+                forecastCityPoints = points;
+                renderForecastCityPoints(points);
+                applyForecastLayerVisibility();
+
+                if (getForecastLayerPreferences().showGrid) {
+                    setForecastMapStatus('Sehirler hazir, grid katmani yukleniyor...', 'warn');
+                    fetchForecastGrid(RENDER_API_BASE_URL);
+                } else {
+                    setForecastMapStatus(`Sehir forecast verisi hazir (${points.length} nokta). Grid kapali.`, 'success');
+                }
+                return;
 
                 const bounds = [];
                 points.forEach(point => {
@@ -555,6 +766,7 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 console.error('Forecast map veri çekme hatası:', error);
+                setForecastMapStatus('V2 forecast verisi yuklenemedi, legacy fallback denenecek.', 'warn');
                 fetchPredictionMapDataFallback();
             });
     }
@@ -585,15 +797,35 @@ document.addEventListener('DOMContentLoaded', () => {
                     `);
                 });
                 if (bounds.length > 0) mymap3.fitBounds(bounds, { padding: [50, 50] });
+                setForecastMapStatus('Legacy forecast goruntulendi. V2 endpoint kontrol edilmeli.', 'warn');
             })
             .catch(() => {});
     }
 
     function fetchForecastGrid(base) {
+        if (!mymap3) return;
+        if (!getForecastLayerPreferences().showGrid) {
+            if (forecastGridLayer) forecastGridLayer.clearLayers();
+            applyForecastLayerVisibility();
+            return;
+        }
+        if (forecastGridPoints.length) {
+            renderForecastGridPoints(forecastGridPoints);
+            applyForecastLayerVisibility();
+            setForecastMapStatus(`Grid katmani hazir (${forecastGridPoints.length} nokta).`, 'success');
+            return;
+        }
+
+        setForecastMapStatus('Grid katmani yukleniyor, bu kisim biraz uzun surebilir...', 'warn');
         fetch(`${base}/api/v2/forecast-grid`, { method: 'GET', mode: 'cors' })
             .then(r => r.json())
             .then(data => {
-                if (!data || !data.points || !window.mymap3) return;
+                if (!data || !data.points || !mymap3) return;
+                forecastGridPoints = data.points;
+                renderForecastGridPoints(forecastGridPoints);
+                applyForecastLayerVisibility();
+                setForecastMapStatus(`Grid katmani hazir (${forecastGridPoints.length} nokta).`, 'success');
+                return;
                 data.points.forEach(point => {
                     const p = Number(point.probability || 0);
                     const color = p >= 0.60 ? '#FF1744' : p >= 0.35 ? '#ff9800' : p >= 0.15 ? '#ffd54f' : '#2ecc71';
@@ -623,7 +855,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     `);
                 });
             })
-            .catch(err => console.error('forecast-grid error:', err));
+            .catch(err => {
+                console.error('forecast-grid error:', err);
+                setForecastMapStatus('Grid katmani yuklenemedi.', 'error');
+            });
     }
 
     function fetchData() {
@@ -696,10 +931,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     const brierStd = m.brier_std;
                     const samples = Number(m.samples ?? m.samples_test ?? 0);
                     const calibrationHtml = renderCalibrationChart(calibration);
+                    const interpretation = describeForecastQuality(m, backtest);
+                    const targetPrimary = data.targets?.primary || 'm4_24h';
+                    const targetAux = Array.isArray(data.targets?.auxiliary) ? data.targets.auxiliary.join(', ') : 'Yok';
                     el.innerHTML = `
                         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:15px;">
                             <div><strong>Model:</strong> ${data.model_type || 'forecast_hybrid_v3_timeseriescv'}</div>
                             <div><strong>Eğitim:</strong> ${data.trained_at ? new Date(data.trained_at).toLocaleString('tr-TR') : 'N/A'}</div>
+                            <div><strong>Ana hedef:</strong> ${targetPrimary}</div>
+                            <div><strong>Yardimci hedefler:</strong> ${targetAux}</div>
                             <div><strong>ROC-AUC:</strong> ${roc.toFixed(3)}${rocStd != null ? ` +/- ${Number(rocStd).toFixed(3)}` : ''}</div>
                             <div><strong>PR-AUC:</strong> ${pr.toFixed(3)}${prStd != null ? ` +/- ${Number(prStd).toFixed(3)}` : ''}</div>
                             <div><strong>Brier:</strong> ${brier.toFixed(4)}${brierStd != null ? ` +/- ${Number(brierStd).toFixed(4)}` : ''}</div>
@@ -707,6 +947,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div><strong>Örnek sayısı:</strong> ${samples}</div>
                             <div><strong>Backtest hit:</strong> ${((Number(backtest.hit_rate || 0)) * 100).toFixed(1)}%</div>
                             <div><strong>Calibration bin:</strong> ${(calibration.prob_true || []).length}</div>
+                            <div style="grid-column:1 / -1;"><strong>Dogruluk ozeti:</strong> ${interpretation}</div>
                             <div style="grid-column:1 / -1;"><strong>Global importance:</strong><br>${topImportance || 'Yok'}</div>
                             <div style="grid-column:1 / -1;">${calibrationHtml}</div>
                         </div>
@@ -1496,6 +1737,26 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // İlk yüklemede her iki haritayı da başlat
     fetchData();
+
+    document.getElementById('forecastCityToggle')?.addEventListener('change', () => {
+        applyForecastLayerVisibility();
+        if (!getForecastLayerPreferences().showCities && !getForecastLayerPreferences().showGrid) {
+            setForecastMapStatus('Tum forecast katmanlari gizlendi.', 'warn');
+        } else if (getForecastLayerPreferences().showGrid && forecastGridPoints.length) {
+            setForecastMapStatus(`Grid katmani hazir (${forecastGridPoints.length} nokta).`, 'success');
+        } else if (forecastCityPoints.length) {
+            setForecastMapStatus(`Sehir forecast verisi hazir (${forecastCityPoints.length} nokta).`, 'success');
+        }
+    });
+
+    document.getElementById('forecastGridToggle')?.addEventListener('change', (event) => {
+        applyForecastLayerVisibility();
+        if (event.target.checked) {
+            fetchForecastGrid(RENDER_API_BASE_URL);
+        } else {
+            setForecastMapStatus('Grid katmani gizlendi.', 'warn');
+        }
+    });
 
     // Chatbot
     const chatbotToggle = document.getElementById('chatbotToggle');

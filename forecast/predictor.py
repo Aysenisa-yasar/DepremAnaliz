@@ -8,7 +8,7 @@ from forecast.bvalue import compute_b_value
 from forecast.clustering import detect_clusters
 from forecast.etas_like import etas_like_score
 from forecast.explain import explain_prediction
-from forecast.features import extract_features
+from forecast.features import extract_features, haversine_km
 from forecast.gnn.predict import predict_gnn
 from forecast.lstm_model import predict_lstm_sequence
 
@@ -58,18 +58,58 @@ def _clamp01(value: float) -> float:
     return float(min(max(value, 0.0), 1.0))
 
 
-def _build_signal_bundle(events: list, lat: float, lon: float) -> dict:
+def _local_signal_events(
+    events: list,
+    lat: float,
+    lon: float,
+    radius_km: float = 250.0,
+    lookback_hours: float = 168.0,
+    min_events: int = 12,
+) -> list:
     recent_events = _sorted_events(events)
-    cluster_events = recent_events[-200:] if len(recent_events) > 200 else recent_events
-    bvalue_events = recent_events[-500:] if len(recent_events) > 500 else recent_events
-    lstm_events = recent_events[-50:] if len(recent_events) > 50 else recent_events
-    gnn_events = recent_events[-100:] if len(recent_events) > 100 else recent_events
+    if not recent_events:
+        return []
+
+    now = float(recent_events[-1].get("timestamp") or 0)
+    scored_events = []
+    for event in recent_events:
+        ts = float(event.get("timestamp") or 0)
+        if ts <= 0:
+            continue
+
+        age_hours = (now - ts) / 3600.0
+        if age_hours > lookback_hours:
+            continue
+
+        event_lat = float(event.get("lat", 0) or 0)
+        event_lon = float(event.get("lon", 0) or 0)
+        distance = haversine_km(lat, lon, event_lat, event_lon)
+        scored_events.append((distance, age_hours, event))
+
+    if not scored_events:
+        return []
+
+    local_events = [event for distance, _, event in scored_events if distance <= radius_km]
+    if len(local_events) >= min_events:
+        return sorted(local_events, key=lambda event: float(event.get("timestamp") or 0))
+
+    scored_events.sort(key=lambda item: (item[0], item[1]))
+    nearest_events = [event for _, _, event in scored_events[: max(min_events, 60)]]
+    return sorted(nearest_events, key=lambda event: float(event.get("timestamp") or 0))
+
+
+def _build_signal_bundle(events: list, lat: float, lon: float) -> dict:
+    signal_events = _local_signal_events(events, lat, lon)
+    cluster_events = signal_events[-200:] if len(signal_events) > 200 else signal_events
+    bvalue_events = signal_events[-500:] if len(signal_events) > 500 else signal_events
+    lstm_events = signal_events[-50:] if len(signal_events) > 50 else signal_events
+    gnn_events = signal_events[-100:] if len(signal_events) > 100 else signal_events
 
     clusters = detect_clusters(cluster_events)
     cluster_score = _clamp01(len(clusters) / 5.0)
     b_value = compute_b_value(bvalue_events)
     b_risk = _clamp01(1.2 - b_value)
-    lstm_prob = _clamp01(predict_lstm_sequence(lstm_events, lat, lon) if recent_events else 0.0)
+    lstm_prob = _clamp01(predict_lstm_sequence(lstm_events, lat, lon) if signal_events else 0.0)
     gnn_prob = _clamp01(predict_gnn(gnn_events))
 
     return {
@@ -78,6 +118,7 @@ def _build_signal_bundle(events: list, lat: float, lon: float) -> dict:
         "b_risk": float(b_risk),
         "lstm_probability": float(lstm_prob),
         "gnn_probability": float(gnn_prob),
+        "signal_event_count": int(len(signal_events)),
     }
 
 
@@ -165,6 +206,7 @@ def predict_with_model_data(
             "m5_72h_probability": 0.0,
             "max_mag_7d_prediction": 0.0,
             "ensemble_weights": _dynamic_weights(feats),
+            "signal_event_count": int(signals["signal_event_count"]),
             "features": feats,
             "top_features": [],
             "model_type": "no_forecast_model",
@@ -205,6 +247,7 @@ def predict_with_model_data(
         "m5_72h_probability": float(_clamp01(m5_prob)),
         "max_mag_7d_prediction": float(max_mag_7d),
         "ensemble_weights": weights,
+        "signal_event_count": int(signals["signal_event_count"]),
         "features": feats,
         "top_features": [],
         "model_type": model_data.get("model_type", MODEL_TYPE),

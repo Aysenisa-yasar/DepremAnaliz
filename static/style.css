@@ -242,6 +242,35 @@ h1 {
 .legend-dot.mid { background: #f39c12; }
 .legend-dot.high { background: #e74c3c; }
 
+.forecast-map-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 14px;
+}
+
+.forecast-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 0.9rem;
+}
+
+.forecast-toggle input {
+    accent-color: var(--color-primary);
+}
+
+.forecast-status {
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.9rem;
+}
+
 /* Modern 2x2 Grid Layout - Ferah spacing */
 .cards-grid {
     display: grid;

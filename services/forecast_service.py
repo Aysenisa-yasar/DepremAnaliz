@@ -22,6 +22,7 @@ def forecast_city(events: list, city: dict, explain: bool = False) -> dict:
         "top_features": pred.get("top_features", []),
         "features": pred.get("features", {}),
         "ensemble_weights": pred.get("ensemble_weights", {}),
+        "signal_event_count": int(pred.get("signal_event_count", 0)),
         "model_type": pred.get("model_type", "forecast_hybrid_v3_timeseriescv"),
         "fault_distance": float(pred.get("fault_distance", 999.0)),
         "fault_proximity_score": float(pred.get("fault_proximity_score", 0.0)),

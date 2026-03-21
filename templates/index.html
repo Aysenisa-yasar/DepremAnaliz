@@ -54,7 +54,46 @@
                     &nbsp;
                     <span class="legend-dot high"></span> Yüksek risk
                 </p>
+                <div class="forecast-map-toolbar">
+                    <label class="forecast-toggle">
+                        <input type="checkbox" id="forecastCityToggle" checked>
+                        <span>Sehir marker</span>
+                    </label>
+                    <label class="forecast-toggle">
+                        <input type="checkbox" id="forecastGridToggle">
+                        <span>Grid katmani</span>
+                    </label>
+                    <span id="forecastMapStatus" class="forecast-status">Forecast haritasi yukleniyor...</span>
+                </div>
                 <div id="mapid3" class="map-in-card"></div>
+            </div>
+        </div>
+
+        <div class="dashboard-section">
+            <h2 class="dashboard-title">Forecast Dashboard</h2>
+            <div class="cards-grid">
+                <div class="card card-dashboard">
+                    <h3>Model Performansi</h3>
+                    <div id="mlMetricsContent" class="dashboard-content loading-text">Forecast metrikleri yukleniyor...</div>
+                </div>
+                <div class="card card-dashboard">
+                    <h3>M&gt;=5 Erken Uyari</h3>
+                    <div id="m5RiskContent" class="dashboard-content loading-text">Uyari verisi yukleniyor...</div>
+                </div>
+                <div class="card card-dashboard">
+                    <div class="card-header-flex">
+                        <h3>Il Bazli Risk Ozeti</h3>
+                        <button id="refreshCityRiskBtn" class="btn-modern btn-outline" type="button">Yenile</button>
+                    </div>
+                    <div id="cityRiskContent" class="dashboard-content city-list loading-text">Sehir riskleri yukleniyor...</div>
+                </div>
+                <div class="card card-dashboard">
+                    <div class="card-header-flex">
+                        <h3>Tahmin Gecmisi</h3>
+                        <button id="trainModelsBtn" class="btn-modern btn-outline" type="button">Modelleri Egit</button>
+                    </div>
+                    <div id="predictionHistoryContent" class="dashboard-content empty-text">Henuz tahmin yapilmadi.</div>
+                </div>
             </div>
         </div>
 

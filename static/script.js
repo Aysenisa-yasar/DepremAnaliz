@@ -8,9 +8,14 @@ const state = {
     map: null,
     cityLayer: null,
     gridLayer: null,
+    regionalMap: null,
+    regionalLayer: null,
     cities: [],
     grid: [],
     selectedCity: null,
+    regionalNodes: [],
+    selectedRegionalNode: null,
+    regionalPayload: null,
     metrics: null,
     location: null
 };
@@ -31,6 +36,13 @@ function formatPercent(value) {
 function formatFixed(value, digits = 2, fallback = "0.00") {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric.toFixed(digits) : fallback;
+}
+
+function formatLeadTime(hours) {
+    const numeric = Number(hours);
+    if (!Number.isFinite(numeric)) return "N/A";
+    if (numeric < 24) return `${numeric.toFixed(1)} h`;
+    return `${(numeric / 24).toFixed(1)} d`;
 }
 
 function formatDateTime(value) {
@@ -81,6 +93,13 @@ function forecastColor(probability) {
     return "#18794e";
 }
 
+function regionalColor(intensity) {
+    if (intensity >= 0.8) return "#b13a2d";
+    if (intensity >= 0.55) return "#c88326";
+    if (intensity >= 0.3) return "#b7a125";
+    return "#0f766e";
+}
+
 function warningClass(level) {
     const normalized = String(level || "").toUpperCase();
     if (normalized.includes("KRITIK") || normalized.includes("KRİTİK")) return "warning-critical";
@@ -113,6 +132,28 @@ function initMap() {
     });
 }
 
+function initRegionalMap() {
+    if (!window.L) return;
+
+    state.regionalMap = L.map("regionalPilotMap", {
+        zoomControl: true,
+        scrollWheelZoom: true
+    }).setView([39.1, 35.2], 6);
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+    }).addTo(state.regionalMap);
+
+    state.regionalLayer = L.layerGroup().addTo(state.regionalMap);
+
+    [50, 200, 600].forEach(delay => {
+        setTimeout(() => {
+            if (state.regionalMap) state.regionalMap.invalidateSize();
+        }, delay);
+    });
+}
+
 function buildPopup(point) {
     const features = Array.isArray(point.top_features) && point.top_features.length
         ? point.top_features.map(item => `<div>${stripDecorative(item.name || item.feature)}: ${formatFixed(item.value ?? item.impact ?? 0, 3)}</div>`).join("")
@@ -128,6 +169,10 @@ function buildPopup(point) {
         Risk score: ${formatFixed(point.risk_score, 2)}/10<br>
         M&gt;=5 / 72h: ${formatPercent(point.m5_72h_probability)}<br>
         Max mag / 7d: ${formatFixed(point.max_mag_7d_prediction, 2)}<br>
+        Next event ETA: ${formatLeadTime(point.time_to_next_event_hours_prediction)}<br>
+        Next event window: ${stripDecorative(point.next_event_time_window || "N/A")}<br>
+        Next event magnitude: ${formatFixed(point.next_event_magnitude_prediction, 2, "N/A")}<br>
+        Next event distance: ${formatFixed(point.next_event_distance_km_prediction, 1, "N/A")} km<br>
         Locality score: ${formatPercent(point.locality_score)}<br>
         Fault distance: ${formatFixed(point.fault_distance, 1, "999.0")} km<br>
         Signal events: ${Number(point.signal_event_count || 0)}<br>
@@ -150,6 +195,10 @@ function buildMetricTiles(point) {
         ["GNN", formatPercent(point.gnn_probability)],
         ["M>=5 / 72h", formatPercent(point.m5_72h_probability)],
         ["Max mag / 7d", formatFixed(point.max_mag_7d_prediction, 2)],
+        ["Next event ETA", formatLeadTime(point.time_to_next_event_hours_prediction)],
+        ["Next event window", stripDecorative(point.next_event_time_window || "N/A")],
+        ["Next event M", formatFixed(point.next_event_magnitude_prediction, 2, "N/A")],
+        ["Next event distance", `${formatFixed(point.next_event_distance_km_prediction, 1, "N/A")} km`],
         ["Locality score", formatPercent(point.locality_score)],
         ["Fault distance", `${formatFixed(point.fault_distance, 1, "999.0")} km`],
         ["Fault segment", stripDecorative(point.nearest_fault_segment || "unknown")],
@@ -172,7 +221,7 @@ function updateSelectedCity(point) {
     setText("selectedCityName", stripDecorative(point.city || "Unknown city"));
     setText(
         "selectedCitySubtitle",
-        `Final probability ${formatPercent(point.probability)}, M>=5 / 72h ${formatPercent(point.m5_72h_probability)}, signal window ${Number(point.signal_event_count || 0)} event.`
+        `Final probability ${formatPercent(point.probability)}, next event ETA ${formatLeadTime(point.time_to_next_event_hours_prediction)}, signal window ${Number(point.signal_event_count || 0)} event.`
     );
     setHtml("selectedMetricGrid", buildMetricTiles(point));
 
@@ -240,6 +289,164 @@ function renderGridMarkers(points) {
     });
 }
 
+function renderRegionalEmptyState(message, detail = "Pilot regional output is not available yet.") {
+    setText("regionalTopNodeName", message);
+    setText("regionalTopNodeSubtitle", detail);
+    setHtml("regionalNodeMetrics", `<div class="empty-state">${detail}</div>`);
+    setHtml("regionalNodeList", `<div class="empty-state">${detail}</div>`);
+    setHtml("regionalModelMeta", `<p>${detail}</p>`);
+    state.selectedRegionalNode = null;
+}
+
+function buildRegionalPopup(node, payload) {
+    const summary = payload.summary || {};
+    return `
+        <strong>${stripDecorative(node.name || "Region")}</strong><br>
+        Predicted weekly count: ${formatFixed(node.predicted_count, 2)}<br>
+        Rounded view: ${Number(node.predicted_count_rounded || 0)}<br>
+        Last week count: ${formatFixed(node.last_week_count, 2)}<br>
+        Rolling 4w mean: ${formatFixed(node.rolling_4w_mean, 2)}<br>
+        Delta vs last week: ${formatFixed(node.delta_vs_last_week, 2)}<br>
+        Share of next week total: ${formatPercent(node.share)}<br>
+        Predicted week: ${stripDecorative(payload.predicted_week_start || "Unknown")}<br>
+        Regional total: ${formatFixed(summary.predicted_total_count, 2)}
+    `;
+}
+
+function buildRegionalMetricTiles(node, payload) {
+    const summary = payload.summary || {};
+    const metrics = payload.metrics?.graph_temporal || {};
+    const baselineNaive = payload.metrics?.naive_last_week || {};
+    const baselineLinear = payload.metrics?.linear_graph_baseline || {};
+
+    const tiles = [
+        ["Predicted weekly count", formatFixed(node.predicted_count, 2)],
+        ["Rounded count", String(Number(node.predicted_count_rounded || 0))],
+        ["Last week", formatFixed(node.last_week_count, 2)],
+        ["4w mean", formatFixed(node.rolling_4w_mean, 2)],
+        ["Delta", formatFixed(node.delta_vs_last_week, 2)],
+        ["Regional share", formatPercent(node.share)],
+        ["Pilot total RMSE", formatFixed(metrics.total_rmse, 3, "N/A")],
+        ["Naive total RMSE", formatFixed(baselineNaive.total_rmse, 3, "N/A")],
+        ["Linear total RMSE", formatFixed(baselineLinear.total_rmse, 3, "N/A")],
+        ["Predicted week", stripDecorative(payload.predicted_week_start || "Unknown")],
+        ["Total next week", formatFixed(summary.predicted_total_count, 2)],
+        ["Last total week", formatFixed(summary.last_week_total_count, 2)]
+    ];
+
+    return tiles.map(([label, value]) => `
+        <div class="metric-tile">
+            <span class="tile-label">${label}</span>
+            <strong class="tile-value">${value}</strong>
+        </div>
+    `).join("");
+}
+
+function renderRegionalModelMeta(payload) {
+    if (!payload || payload.status !== "success") {
+        const message = stripDecorative(payload?.message || "Pilot model metadata is not available.");
+        setHtml("regionalModelMeta", `<p>${message}</p>`);
+        return;
+    }
+
+    const summary = payload.summary || {};
+    const metrics = payload.metrics?.graph_temporal || {};
+    const naive = payload.metrics?.naive_last_week || {};
+    const linear = payload.metrics?.linear_graph_baseline || {};
+
+    const paragraphs = [
+        `This map is isolated from the live hybrid stack and uses a weekly regional graph-temporal pilot model.`,
+        `Catalog window ${stripDecorative(summary.catalog_start || "Unknown")} to ${stripDecorative(summary.catalog_end || "Unknown")} with ${Number(summary.event_count || 0)} filtered events across ${Number(summary.week_count || 0)} weeks.`,
+        `Pilot test error is total RMSE ${formatFixed(metrics.total_rmse, 3, "N/A")} and node RMSE ${formatFixed(metrics.node_rmse, 3, "N/A")}.`,
+        `Naive last-week total RMSE is ${formatFixed(naive.total_rmse, 3, "N/A")}; linear graph baseline total RMSE is ${formatFixed(linear.total_rmse, 3, "N/A")}.`,
+        `The highlighted node is ${stripDecorative(summary.top_region || "Unknown")} for the predicted week starting ${stripDecorative(payload.predicted_week_start || "Unknown")}.`
+    ];
+
+    setHtml("regionalModelMeta", paragraphs.map(text => `<p>${text}</p>`).join(""));
+}
+
+function renderRegionalNodeList(nodes, payload) {
+    const container = document.getElementById("regionalNodeList");
+    if (!container) return;
+
+    if (!Array.isArray(nodes) || !nodes.length) {
+        container.innerHTML = `<div class="empty-state">No regional node output.</div>`;
+        return;
+    }
+
+    container.innerHTML = nodes.map(node => {
+        const activeClass = state.selectedRegionalNode && node.name === state.selectedRegionalNode.name ? " is-active" : "";
+        return `
+            <button class="ranking-row${activeClass}" type="button" data-region="${stripDecorative(node.name)}">
+                <div class="ranking-top">
+                    <span class="ranking-title">${stripDecorative(node.name)}</span>
+                    <span class="ranking-score">${formatFixed(node.predicted_count, 2)}</span>
+                </div>
+                <div class="ranking-meta">
+                    <span>Rounded ${Number(node.predicted_count_rounded || 0)}</span>
+                    <span>Last week ${formatFixed(node.last_week_count, 2)}</span>
+                    <span>4w mean ${formatFixed(node.rolling_4w_mean, 2)}</span>
+                    <span>Share ${formatPercent(node.share)}</span>
+                    <span>Delta ${formatFixed(node.delta_vs_last_week, 2)}</span>
+                    <span>Week ${stripDecorative(payload.predicted_week_start || "Unknown")}</span>
+                </div>
+            </button>
+        `;
+    }).join("");
+
+    container.querySelectorAll(".ranking-row").forEach(button => {
+        button.addEventListener("click", () => {
+            const node = state.regionalNodes.find(item => stripDecorative(item.name) === button.dataset.region);
+            if (!node) return;
+            updateRegionalNode(node, payload);
+            if (state.regionalMap) {
+                state.regionalMap.flyTo([node.lat, node.lon], Math.max(state.regionalMap.getZoom(), 6), { duration: 0.6 });
+            }
+        });
+    });
+}
+
+function updateRegionalNode(node, payload) {
+    if (!node) return;
+    state.selectedRegionalNode = node;
+
+    setText("regionalTopNodeName", stripDecorative(node.name || "Unknown region"));
+    setText(
+        "regionalTopNodeSubtitle",
+        `Predicted weekly count ${formatFixed(node.predicted_count, 2)}, last week ${formatFixed(node.last_week_count, 2)}, 4-week mean ${formatFixed(node.rolling_4w_mean, 2)}.`
+    );
+    setHtml("regionalNodeMetrics", buildRegionalMetricTiles(node, payload));
+    renderRegionalNodeList(state.regionalNodes, payload);
+    renderRegionalModelMeta(payload);
+}
+
+function renderRegionalMarkers(nodes, payload) {
+    if (!state.regionalLayer || !state.regionalMap) return;
+
+    state.regionalLayer.clearLayers();
+    const bounds = [];
+
+    nodes.forEach(node => {
+        if (typeof node.lat !== "number" || typeof node.lon !== "number") return;
+        const color = regionalColor(Number(node.normalized_intensity || 0));
+        const marker = L.circleMarker([node.lat, node.lon], {
+            radius: 8 + Math.max(0, Math.min(12, Number(node.normalized_intensity || 0) * 12)),
+            color,
+            fillColor: color,
+            fillOpacity: 0.72,
+            weight: 2
+        }).addTo(state.regionalLayer);
+
+        marker.bindPopup(buildRegionalPopup(node, payload));
+        marker.on("click", () => updateRegionalNode(node, payload));
+        bounds.push([node.lat, node.lon]);
+    });
+
+    if (bounds.length) {
+        state.regionalMap.fitBounds(bounds, { padding: [36, 36] });
+    }
+}
+
 function syncLayerVisibility() {
     if (!state.map) return;
 
@@ -285,6 +492,7 @@ function renderCityRanking(points) {
                 </div>
                 <div class="ranking-meta">
                     <span>M>=5 / 72h ${formatPercent(point.m5_72h_probability)}</span>
+                    <span>ETA ${formatLeadTime(point.time_to_next_event_hours_prediction)}</span>
                     <span>Locality ${formatPercent(point.locality_score)}</span>
                     <span>Fault ${formatFixed(point.fault_distance, 1, "999.0")} km</span>
                     <span>Signals ${Number(point.signal_event_count || 0)}</span>
@@ -362,6 +570,7 @@ function renderMetricBlocks(metrics, backtest, calibration) {
         ["Brier", `${formatFixed(metrics.brier_mean ?? metrics.brier ?? 0, 4)}`],
         ["Backtest hit", `${formatPercent(backtest.hit_rate || 0)}`],
         ["Positive rate", `${formatFixed(metrics.positive_rate ?? 0, 3)}`],
+        ["Next event MAE", `${formatFixed(metrics.time_to_next_event_hours_mae_mean, 1, "N/A")} h`],
         ["Samples", `${Number(metrics.samples ?? metrics.samples_test ?? 0)}`],
         ["Mean forecast", `${formatPercent(backtest.mean_prob || 0)}`],
         ["Calibration bins", `${Array.isArray(calibration?.prob_true) ? calibration.prob_true.length : 0}`]
@@ -394,6 +603,10 @@ function renderNarrative(metrics, backtest, targets) {
         `Rolling backtest hit rate is ${(hit * 100).toFixed(1)} percent.`,
         `City forecast spread is ${formatPercent(citySpread)} across the tracked city set.`
     ];
+
+    if (metrics.time_to_next_event_hours_mae_mean != null) {
+        sentences.push(`Conditional next-event timing error is about ${formatFixed(metrics.time_to_next_event_hours_mae_mean, 1)} hours.`);
+    }
 
     if (gnnInactive) {
         sentences.push("GNN contribution is currently zero in the live outputs; if that remains after restart, verify the runtime environment that serves the app.");
@@ -476,6 +689,37 @@ async function loadForecastGrid(forceReload = false) {
     renderGridMarkers(state.grid);
     syncLayerVisibility();
     setText("forecastMapStatus", `Grid layer loaded with ${state.grid.length} points.`);
+}
+
+async function loadRegionalPilotMap() {
+    setText("regionalPilotStatus", "Loading regional pilot map.");
+    const data = await fetchJson("/api/v2/regional-pilot-map");
+    state.regionalPayload = data;
+    state.regionalNodes = Array.isArray(data.nodes) ? data.nodes : [];
+
+    if (data.status !== "success") {
+        if (state.regionalLayer) state.regionalLayer.clearLayers();
+        setText("regionalPilotStatus", stripDecorative(data.message || "Regional pilot model is not ready."));
+        renderRegionalEmptyState("Pilot model not ready", stripDecorative(data.message || "Regional pilot model is not ready."));
+        renderRegionalModelMeta(data);
+        return data;
+    }
+
+    renderRegionalMarkers(state.regionalNodes, data);
+    renderRegionalModelMeta(data);
+
+    if (state.regionalNodes.length) {
+        updateRegionalNode(state.regionalNodes[0], data);
+        setText(
+            "regionalPilotStatus",
+            `Loaded ${state.regionalNodes.length} regional nodes for week ${stripDecorative(data.predicted_week_start || "Unknown")}.`
+        );
+    } else {
+        setText("regionalPilotStatus", "Regional pilot map returned no nodes.");
+        renderRegionalEmptyState("No regional nodes", "The pilot model response did not include any node predictions.");
+    }
+
+    return data;
 }
 
 function renderIstanbulWarning(data) {
@@ -700,6 +944,13 @@ async function refreshDashboard({ reloadGrid = false } = {}) {
         return;
     }
 
+    try {
+        await loadRegionalPilotMap();
+    } catch (error) {
+        setText("regionalPilotStatus", `Regional pilot refresh failed: ${stripDecorative(error.message)}`);
+        renderRegionalEmptyState("Pilot map refresh failed", stripDecorative(error.message));
+    }
+
     if (metricsPayload) {
         updateSummary(metricsPayload, warningsPayload.turkey);
         renderNarrative(metricsPayload.metrics || {}, metricsPayload.backtest || {}, metricsPayload.targets || {});
@@ -722,6 +973,14 @@ async function refreshDashboard({ reloadGrid = false } = {}) {
 
 function bindEvents() {
     document.getElementById("refreshForecastButton")?.addEventListener("click", () => refreshDashboard({ reloadGrid: true }));
+    document.getElementById("refreshRegionalPilotButton")?.addEventListener("click", async () => {
+        try {
+            await loadRegionalPilotMap();
+        } catch (error) {
+            setText("regionalPilotStatus", `Regional pilot refresh failed: ${stripDecorative(error.message)}`);
+            renderRegionalEmptyState("Pilot map refresh failed", stripDecorative(error.message));
+        }
+    });
     document.getElementById("toggleCityLayer")?.addEventListener("change", syncLayerVisibility);
     document.getElementById("toggleGridLayer")?.addEventListener("change", async event => {
         syncLayerVisibility();
@@ -749,11 +1008,13 @@ function bindEvents() {
 
     window.addEventListener("resize", () => {
         if (state.map) state.map.invalidateSize();
+        if (state.regionalMap) state.regionalMap.invalidateSize();
     });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
     initMap();
+    initRegionalMap();
     bindEvents();
     refreshDashboard();
 });

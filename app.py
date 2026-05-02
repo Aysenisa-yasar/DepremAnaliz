@@ -41,8 +41,10 @@ app = Flask(__name__)
 try:
     from routes.forecast_routes import forecast_bp
     from routes.metrics_routes import metrics_bp
+    from routes.regional_pilot_routes import regional_pilot_bp
     app.register_blueprint(forecast_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(regional_pilot_bp)
 except ImportError as e:
     logger.warning("[APP] Yeni mimari blueprint'ler yüklenemedi (routes/forecast/): %s", e)
 

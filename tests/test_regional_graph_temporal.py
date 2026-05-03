@@ -4,13 +4,16 @@ from forecast.regional_graph_temporal import (
     build_normalized_adjacency,
     build_supervised_sequences,
     build_weekly_region_panel,
+    get_location_pilot_signal,
     load_regional_pilot_model,
+    predict_next_week,
 )
 
 
 def test_regional_adjacency_shape():
     adjacency = build_normalized_adjacency()
     assert adjacency.shape == (len(REGIONAL_NODES), len(REGIONAL_NODES))
+    assert len(REGIONAL_NODES) == 81
 
 
 def test_weekly_region_panel_builds_tensor():
@@ -44,3 +47,21 @@ def test_supervised_sequences_return_expected_shapes():
 def test_load_regional_model_returns_none_or_dict():
     model = load_regional_pilot_model()
     assert model is None or isinstance(model, dict)
+
+
+def test_predict_next_week_uses_snapshot_when_live_history_short():
+    if load_regional_pilot_model() is None:
+        return
+
+    payload = predict_next_week([], model_data=load_regional_pilot_model())
+    assert payload["status"] in {"success", "insufficient_history"}
+
+
+def test_get_location_pilot_signal_returns_expected_shape():
+    if load_regional_pilot_model() is None:
+        return
+
+    signal = get_location_pilot_signal([], 39.93, 32.86, model_data=load_regional_pilot_model())
+    assert "pilot_available" in signal
+    assert "pilot_probability" in signal
+    assert "pilot_region_name" in signal

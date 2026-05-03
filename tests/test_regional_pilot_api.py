@@ -17,3 +17,11 @@ def test_regional_pilot_map_returns_json(client):
     assert data is not None
     assert "status" in data
     assert "nodes" in data
+
+
+def test_home_contains_comparison_panel(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "comparisonStatus" in body
+    assert "Hybrid forecast vs province graph-temporal pilot" in body

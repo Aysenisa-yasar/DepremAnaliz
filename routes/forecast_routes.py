@@ -1,3 +1,5 @@
+import time
+
 from flask import Blueprint, jsonify
 
 from services.anomaly_service import anomaly_score
@@ -8,6 +10,8 @@ from services.grid_forecast_service import forecast_grid
 forecast_bp = Blueprint("forecast", __name__)
 
 MODEL_TYPE = "forecast_hybrid_v3_timeseriescv"
+_FORECAST_MAP_CACHE = {"payload": None, "timestamp": 0.0, "ttl": 300.0}
+_FORECAST_GRID_CACHE = {"payload": None, "timestamp": 0.0, "ttl": 300.0}
 
 CITIES = {
     "İstanbul": {"lat": 41.0082, "lon": 28.9784},
@@ -38,13 +42,36 @@ CITIES = {
 }
 
 
+def _read_cache(cache: dict):
+    if cache["payload"] is None:
+        return None
+    if (time.time() - cache["timestamp"]) >= cache["ttl"]:
+        return None
+    points = cache["payload"].get("points") if isinstance(cache["payload"], dict) else None
+    if isinstance(points, list) and points and "pilot_probability" not in points[0]:
+        cache["payload"] = None
+        cache["timestamp"] = 0.0
+        return None
+    return cache["payload"]
+
+
+def _write_cache(cache: dict, payload: dict) -> dict:
+    cache["payload"] = payload
+    cache["timestamp"] = time.time()
+    return payload
+
+
 @forecast_bp.route("/api/v2/forecast-map", methods=["GET"])
 def forecast_map_v2():
     try:
-        events = load_events()
+        cached_payload = _read_cache(_FORECAST_MAP_CACHE)
+        if cached_payload is not None:
+            return jsonify(cached_payload)
+
+        events = load_events(prefer_file=True, api_timeout=5)
         points = []
         for name, city in CITIES.items():
-            pred = forecast_city(events, city, explain=True)
+            pred = forecast_city(events, city, explain=False)
             ano = anomaly_score(events, city["lat"], city["lon"])
             risk_score = pred["risk_score"]
             risk_level = "Yüksek" if risk_score >= 5.5 else "Orta" if risk_score >= 3.5 else "Düşük"
@@ -63,6 +90,17 @@ def forecast_map_v2():
                 "gnn_probability": pred.get("gnn_probability", 0.0),
                 "m5_72h_probability": pred.get("m5_72h_probability", 0.0),
                 "max_mag_7d_prediction": pred.get("max_mag_7d_prediction", 0.0),
+                "time_to_next_event_hours_prediction": pred.get("time_to_next_event_hours_prediction"),
+                "next_event_distance_km_prediction": pred.get("next_event_distance_km_prediction"),
+                "next_event_magnitude_prediction": pred.get("next_event_magnitude_prediction"),
+                "next_event_time_window": pred.get("next_event_time_window"),
+                "pilot_probability": pred.get("pilot_probability", 0.0),
+                "pilot_available": pred.get("pilot_available", False),
+                "pilot_province": pred.get("pilot_province"),
+                "pilot_region_distance_km": pred.get("pilot_region_distance_km"),
+                "pilot_weekly_count_prediction": pred.get("pilot_weekly_count_prediction", 0.0),
+                "pilot_signal_weight": pred.get("pilot_signal_weight", 0.0),
+                "pilot_data_source": pred.get("pilot_data_source"),
                 "locality_score": pred.get("locality_score", 0.0),
                 "risk_level": risk_level,
                 "anomaly_score": round(ano, 2),
@@ -82,12 +120,13 @@ def forecast_map_v2():
                 "depth_variance": pred.get("depth_variance", 0.0),
                 "nearest_fault_segment": pred.get("nearest_fault_segment", "unknown"),
             })
-        return jsonify({
+        payload = {
             "status": "success",
             "model_type": MODEL_TYPE,
             "analysis_window": "past_48h",
             "points": points,
-        })
+        }
+        return jsonify(_write_cache(_FORECAST_MAP_CACHE, payload))
     except Exception as e:
         return jsonify({"status": "error", "message": str(e), "points": []}), 500
 
@@ -95,13 +134,18 @@ def forecast_map_v2():
 @forecast_bp.route("/api/v2/forecast-grid", methods=["GET"])
 def forecast_grid_v2():
     try:
-        events = load_events()
+        cached_payload = _read_cache(_FORECAST_GRID_CACHE)
+        if cached_payload is not None:
+            return jsonify(cached_payload)
+
+        events = load_events(prefer_file=True, api_timeout=5)
         points = forecast_grid(events, step=0.5)
-        return jsonify({
+        payload = {
             "status": "success",
             "model_type": MODEL_TYPE,
             "grid_step": 0.5,
             "points": points,
-        })
+        }
+        return jsonify(_write_cache(_FORECAST_GRID_CACHE, payload))
     except Exception as e:
         return jsonify({"status": "error", "message": str(e), "points": []}), 500

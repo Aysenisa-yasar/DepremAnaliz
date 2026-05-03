@@ -161,6 +161,7 @@ body {
 
 .panel-map,
 .panel-regional-map,
+.panel-comparison,
 .panel-diagnostics,
 .panel-warning,
 .panel-notify {
@@ -363,6 +364,12 @@ body {
     gap: 10px;
 }
 
+#regionalNodeList {
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
 .ranking-row {
     width: 100%;
     border: 1px solid var(--line);
@@ -407,6 +414,7 @@ body {
 }
 
 .diagnostic-grid,
+.comparison-grid,
 .warning-grid,
 .notify-grid {
     display: grid;
@@ -417,9 +425,82 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.comparison-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .warning-grid,
 .notify-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.comparison-wide {
+    grid-column: 1 / -1;
+}
+
+.comparison-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.comparison-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) minmax(0, 1fr) 96px;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: var(--panel-strong);
+    border: 1px solid var(--line);
+}
+
+.comparison-label strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.comparison-label span,
+.comparison-score span {
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+.comparison-track {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.comparison-track-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 0.88rem;
+}
+
+.comparison-bar {
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(31, 41, 55, 0.08);
+    overflow: hidden;
+}
+
+.comparison-fill-main {
+    height: 100%;
+    background: linear-gradient(90deg, var(--teal), #1d8d7d);
+}
+
+.comparison-fill-pilot {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold), var(--brand));
+}
+
+.comparison-score {
+    text-align: right;
 }
 
 .diag-card,
@@ -595,6 +676,7 @@ body {
     .main-grid,
     .map-layout,
     .diagnostic-grid,
+    .comparison-grid,
     .warning-grid,
     .notify-grid {
         grid-template-columns: 1fr;
@@ -618,11 +700,16 @@ body {
     .hero-stats,
     .selected-metrics,
     .metric-grid,
+    .comparison-grid,
     .warning-grid,
     .notify-grid,
     .diagnostic-grid,
     .ranking-meta,
     .form-row-split {
+        grid-template-columns: 1fr;
+    }
+
+    .comparison-row {
         grid-template-columns: 1fr;
     }
 

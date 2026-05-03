@@ -16,6 +16,7 @@ _EVENTS_CACHE = {
     "data": None,
     "timestamp": 0.0,
     "ttl": 300.0,
+    "key": None,
 }
 
 
@@ -177,25 +178,38 @@ def load_events_from_file(filepath: str | None = None) -> list:
     return events
 
 
-def load_events(use_api: bool = True, use_file_fallback: bool = True) -> list:
+def load_events(
+    use_api: bool = True,
+    use_file_fallback: bool = True,
+    *,
+    prefer_file: bool = False,
+    api_timeout: int = 5,
+) -> list:
     now = time.time()
+    cache_key = (use_api, use_file_fallback, prefer_file, api_timeout)
     if (
         _EVENTS_CACHE["data"] is not None
+        and _EVENTS_CACHE["key"] == cache_key
         and (now - _EVENTS_CACHE["timestamp"]) < _EVENTS_CACHE["ttl"]
     ):
         return _EVENTS_CACHE["data"]
 
     events = []
-    if use_api:
-        events.extend(load_events_from_kandilli())
-        events.extend(load_events_from_usgs())
-        events.extend(load_events_from_afad())
-    if use_file_fallback:
-        events.extend(load_events_from_file())
+    file_events = load_events_from_file() if use_file_fallback else []
+    if prefer_file and file_events:
+        events.extend(file_events)
+    else:
+        if use_api:
+            events.extend(load_events_from_kandilli(timeout=api_timeout))
+            events.extend(load_events_from_usgs(timeout=api_timeout))
+            events.extend(load_events_from_afad(timeout=api_timeout))
+        if use_file_fallback:
+            events.extend(file_events)
 
     final_events = _dedup_events(_quality_filter(events, min_mag=1.5))
     _EVENTS_CACHE["data"] = final_events
     _EVENTS_CACHE["timestamp"] = now
+    _EVENTS_CACHE["key"] = cache_key
     return final_events
 
 

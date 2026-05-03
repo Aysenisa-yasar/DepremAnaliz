@@ -101,25 +101,25 @@
             <section class="panel panel-regional-map">
                 <div class="panel-head">
                     <div>
-                        <p class="panel-kicker">Regional pilot map</p>
-                        <h2>Separate weekly graph-temporal assignment view</h2>
+                        <p class="panel-kicker">Province pilot map</p>
+                        <h2>Separate weekly graph-temporal province view</h2>
                     </div>
                     <div class="toolbar">
-                        <button class="button button-secondary" id="refreshRegionalPilotButton" type="button">Refresh pilot map</button>
+                        <button class="button button-secondary" id="refreshRegionalPilotButton" type="button">Refresh province map</button>
                     </div>
                 </div>
-                <p class="panel-subtitle" id="regionalPilotStatus">Regional pilot model is loading.</p>
+                <p class="panel-subtitle" id="regionalPilotStatus">Province pilot model is loading.</p>
                 <div class="map-layout">
                     <div id="regionalPilotMap" class="map-frame"></div>
                     <aside class="selected-city">
                         <div class="selected-head">
-                            <span class="selected-kicker">Pilot node</span>
+                            <span class="selected-kicker">Pilot province</span>
                             <h3 id="regionalTopNodeName">Waiting for pilot model data</h3>
-                            <p id="regionalTopNodeSubtitle">Weekly regional node details will appear here.</p>
+                            <p id="regionalTopNodeSubtitle">Weekly province details will appear here.</p>
                         </div>
                         <div class="selected-metrics" id="regionalNodeMetrics"></div>
                         <div class="selected-block">
-                            <h4>Node ranking</h4>
+                            <h4>Province ranking</h4>
                             <div id="regionalNodeList" class="ranking-list"></div>
                         </div>
                         <div class="selected-block">
@@ -127,6 +127,30 @@
                             <div id="regionalModelMeta" class="narrative-box empty-state">Pilot model metadata is loading.</div>
                         </div>
                     </aside>
+                </div>
+            </section>
+
+            <section class="panel panel-comparison">
+                <div class="panel-head">
+                    <div>
+                        <p class="panel-kicker">Model comparison</p>
+                        <h2>Hybrid forecast vs province graph-temporal pilot</h2>
+                    </div>
+                </div>
+                <p class="panel-subtitle" id="comparisonStatus">Comparison layer is waiting for both models.</p>
+                <div class="comparison-grid">
+                    <article class="diag-card">
+                        <h3>Shared points</h3>
+                        <div id="comparisonStats" class="metric-grid"></div>
+                    </article>
+                    <article class="diag-card">
+                        <h3>Reading</h3>
+                        <div id="comparisonNarrative" class="narrative-box empty-state">Comparison narrative is loading.</div>
+                    </article>
+                    <article class="diag-card comparison-wide">
+                        <h3>Matched city and province view</h3>
+                        <div id="comparisonList" class="comparison-list empty-state">Matched locations will appear here.</div>
+                    </article>
                 </div>
             </section>
 

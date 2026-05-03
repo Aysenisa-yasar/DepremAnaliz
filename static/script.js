@@ -1,7 +1,7 @@
 const RENDER_BACKEND_URL = "https://depremanaliz.onrender.com";
 
 const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-    ? "http://localhost:5000"
+    ? window.location.origin
     : (window.location.hostname.includes("github.io") ? RENDER_BACKEND_URL : window.location.origin);
 
 const state = {
@@ -52,6 +52,43 @@ function formatDateTime(value) {
     } catch (_) {
         return String(value);
     }
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const toRad = value => (value * Math.PI) / 180;
+    const radius = 6371.0;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * radius * Math.asin(Math.sqrt(a));
+}
+
+function pearsonCorrelation(leftValues, rightValues) {
+    if (!Array.isArray(leftValues) || !Array.isArray(rightValues) || leftValues.length !== rightValues.length || leftValues.length < 2) {
+        return null;
+    }
+
+    const leftMean = leftValues.reduce((sum, value) => sum + value, 0) / leftValues.length;
+    const rightMean = rightValues.reduce((sum, value) => sum + value, 0) / rightValues.length;
+
+    let numerator = 0;
+    let leftDenominator = 0;
+    let rightDenominator = 0;
+    for (let index = 0; index < leftValues.length; index += 1) {
+        const leftDelta = leftValues[index] - leftMean;
+        const rightDelta = rightValues[index] - rightMean;
+        numerator += leftDelta * rightDelta;
+        leftDenominator += leftDelta * leftDelta;
+        rightDenominator += rightDelta * rightDelta;
+    }
+
+    const denominator = Math.sqrt(leftDenominator * rightDenominator);
+    if (!Number.isFinite(denominator) || denominator === 0) {
+        return null;
+    }
+
+    return numerator / denominator;
 }
 
 function setText(id, value) {
@@ -167,6 +204,10 @@ function buildPopup(point) {
         <strong>${stripDecorative(point.city || "Forecast point")}</strong><br>
         Final probability: ${formatPercent(point.probability)}<br>
         Risk score: ${formatFixed(point.risk_score, 2)}/10<br>
+        Pilot province signal: ${formatPercent(point.pilot_probability)}<br>
+        Pilot province: ${stripDecorative(point.pilot_province || "N/A")}<br>
+        Pilot weekly count: ${formatFixed(point.pilot_weekly_count_prediction, 2)}<br>
+        Pilot distance: ${formatFixed(point.pilot_region_distance_km, 1, "N/A")} km<br>
         M&gt;=5 / 72h: ${formatPercent(point.m5_72h_probability)}<br>
         Max mag / 7d: ${formatFixed(point.max_mag_7d_prediction, 2)}<br>
         Next event ETA: ${formatLeadTime(point.time_to_next_event_hours_prediction)}<br>
@@ -193,6 +234,11 @@ function buildMetricTiles(point) {
         ["ETAS", formatPercent(point.etas_probability)],
         ["LSTM", formatPercent(point.lstm_probability)],
         ["GNN", formatPercent(point.gnn_probability)],
+        ["Pilot province", stripDecorative(point.pilot_province || "N/A")],
+        ["Pilot signal", formatPercent(point.pilot_probability)],
+        ["Pilot weekly count", formatFixed(point.pilot_weekly_count_prediction, 2)],
+        ["Pilot weight", formatPercent(point.pilot_signal_weight)],
+        ["Pilot distance", `${formatFixed(point.pilot_region_distance_km, 1, "N/A")} km`],
         ["M>=5 / 72h", formatPercent(point.m5_72h_probability)],
         ["Max mag / 7d", formatFixed(point.max_mag_7d_prediction, 2)],
         ["Next event ETA", formatLeadTime(point.time_to_next_event_hours_prediction)],
@@ -221,7 +267,7 @@ function updateSelectedCity(point) {
     setText("selectedCityName", stripDecorative(point.city || "Unknown city"));
     setText(
         "selectedCitySubtitle",
-        `Final probability ${formatPercent(point.probability)}, next event ETA ${formatLeadTime(point.time_to_next_event_hours_prediction)}, signal window ${Number(point.signal_event_count || 0)} event.`
+        `Final probability ${formatPercent(point.probability)}, pilot province ${stripDecorative(point.pilot_province || "N/A")} at ${formatPercent(point.pilot_probability)}, signal window ${Number(point.signal_event_count || 0)} event.`
     );
     setHtml("selectedMetricGrid", buildMetricTiles(point));
 
@@ -289,7 +335,7 @@ function renderGridMarkers(points) {
     });
 }
 
-function renderRegionalEmptyState(message, detail = "Pilot regional output is not available yet.") {
+function renderRegionalEmptyState(message, detail = "Pilot province output is not available yet.") {
     setText("regionalTopNodeName", message);
     setText("regionalTopNodeSubtitle", detail);
     setHtml("regionalNodeMetrics", `<div class="empty-state">${detail}</div>`);
@@ -301,7 +347,7 @@ function renderRegionalEmptyState(message, detail = "Pilot regional output is no
 function buildRegionalPopup(node, payload) {
     const summary = payload.summary || {};
     return `
-        <strong>${stripDecorative(node.name || "Region")}</strong><br>
+        <strong>${stripDecorative(node.name || "Province")}</strong><br>
         Predicted weekly count: ${formatFixed(node.predicted_count, 2)}<br>
         Rounded view: ${Number(node.predicted_count_rounded || 0)}<br>
         Last week count: ${formatFixed(node.last_week_count, 2)}<br>
@@ -309,7 +355,7 @@ function buildRegionalPopup(node, payload) {
         Delta vs last week: ${formatFixed(node.delta_vs_last_week, 2)}<br>
         Share of next week total: ${formatPercent(node.share)}<br>
         Predicted week: ${stripDecorative(payload.predicted_week_start || "Unknown")}<br>
-        Regional total: ${formatFixed(summary.predicted_total_count, 2)}
+        Province total: ${formatFixed(summary.predicted_total_count, 2)}
     `;
 }
 
@@ -325,7 +371,7 @@ function buildRegionalMetricTiles(node, payload) {
         ["Last week", formatFixed(node.last_week_count, 2)],
         ["4w mean", formatFixed(node.rolling_4w_mean, 2)],
         ["Delta", formatFixed(node.delta_vs_last_week, 2)],
-        ["Regional share", formatPercent(node.share)],
+        ["Province share", formatPercent(node.share)],
         ["Pilot total RMSE", formatFixed(metrics.total_rmse, 3, "N/A")],
         ["Naive total RMSE", formatFixed(baselineNaive.total_rmse, 3, "N/A")],
         ["Linear total RMSE", formatFixed(baselineLinear.total_rmse, 3, "N/A")],
@@ -355,11 +401,11 @@ function renderRegionalModelMeta(payload) {
     const linear = payload.metrics?.linear_graph_baseline || {};
 
     const paragraphs = [
-        `This map is isolated from the live hybrid stack and uses a weekly regional graph-temporal pilot model.`,
-        `Catalog window ${stripDecorative(summary.catalog_start || "Unknown")} to ${stripDecorative(summary.catalog_end || "Unknown")} with ${Number(summary.event_count || 0)} filtered events across ${Number(summary.week_count || 0)} weeks.`,
+        `This map is isolated from the live hybrid stack and uses a weekly provincial graph-temporal pilot model.`,
+        `Catalog window ${stripDecorative(summary.catalog_start || "Unknown")} to ${stripDecorative(summary.catalog_end || "Unknown")} with ${Number(summary.event_count || 0)} filtered events across ${Number(summary.week_count || 0)} weeks and ${Number(summary.province_count || 0)} provinces.`,
         `Pilot test error is total RMSE ${formatFixed(metrics.total_rmse, 3, "N/A")} and node RMSE ${formatFixed(metrics.node_rmse, 3, "N/A")}.`,
         `Naive last-week total RMSE is ${formatFixed(naive.total_rmse, 3, "N/A")}; linear graph baseline total RMSE is ${formatFixed(linear.total_rmse, 3, "N/A")}.`,
-        `The highlighted node is ${stripDecorative(summary.top_region || "Unknown")} for the predicted week starting ${stripDecorative(payload.predicted_week_start || "Unknown")}.`
+        `The highlighted province is ${stripDecorative(summary.top_region || "Unknown")} for the predicted week starting ${stripDecorative(payload.predicted_week_start || "Unknown")}. Data source: ${stripDecorative(payload.data_source || "unknown")}.`
     ];
 
     setHtml("regionalModelMeta", paragraphs.map(text => `<p>${text}</p>`).join(""));
@@ -370,7 +416,7 @@ function renderRegionalNodeList(nodes, payload) {
     if (!container) return;
 
     if (!Array.isArray(nodes) || !nodes.length) {
-        container.innerHTML = `<div class="empty-state">No regional node output.</div>`;
+        container.innerHTML = `<div class="empty-state">No province output.</div>`;
         return;
     }
 
@@ -410,7 +456,7 @@ function updateRegionalNode(node, payload) {
     if (!node) return;
     state.selectedRegionalNode = node;
 
-    setText("regionalTopNodeName", stripDecorative(node.name || "Unknown region"));
+    setText("regionalTopNodeName", stripDecorative(node.name || "Unknown province"));
     setText(
         "regionalTopNodeSubtitle",
         `Predicted weekly count ${formatFixed(node.predicted_count, 2)}, last week ${formatFixed(node.last_week_count, 2)}, 4-week mean ${formatFixed(node.rolling_4w_mean, 2)}.`
@@ -445,6 +491,137 @@ function renderRegionalMarkers(nodes, payload) {
     if (bounds.length) {
         state.regionalMap.fitBounds(bounds, { padding: [36, 36] });
     }
+}
+
+function buildComparisonPairs() {
+    if (!Array.isArray(state.cities) || !state.cities.length || !Array.isArray(state.regionalNodes) || !state.regionalNodes.length) {
+        return [];
+    }
+
+    const provinceRanks = new Map();
+    state.regionalNodes.forEach((node, index) => {
+        provinceRanks.set(node, index + 1);
+    });
+
+    const cityRanks = new Map();
+    [...state.cities]
+        .sort((left, right) => Number(right.probability || 0) - Number(left.probability || 0))
+        .forEach((city, index) => {
+            cityRanks.set(city, index + 1);
+        });
+
+    return state.cities.map(city => {
+        let bestNode = null;
+        let bestDistance = Infinity;
+
+        state.regionalNodes.forEach(node => {
+            const distance = haversineKm(Number(city.lat || 0), Number(city.lon || 0), Number(node.lat || 0), Number(node.lon || 0));
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestNode = node;
+            }
+        });
+
+        if (!bestNode || bestDistance > 60) {
+            return null;
+        }
+
+        return {
+            city,
+            province: bestNode,
+            distanceKm: bestDistance,
+            hybridRank: cityRanks.get(city) || null,
+            provinceRank: provinceRanks.get(bestNode) || null,
+            hybridScore: Number(city.probability || 0),
+            pilotScore: Number(bestNode.normalized_intensity || 0),
+            pilotCount: Number(bestNode.predicted_count || 0)
+        };
+    }).filter(Boolean).sort((left, right) => Number(right.hybridScore || 0) - Number(left.hybridScore || 0));
+}
+
+function renderComparisonSection() {
+    const pairs = buildComparisonPairs();
+    if (!pairs.length) {
+        setText("comparisonStatus", "Comparison layer is waiting for both models.");
+        setHtml("comparisonStats", `<div class="empty-state">Comparison metrics will appear after both model payloads are loaded.</div>`);
+        setHtml("comparisonNarrative", `<p>The hybrid forecast and the province pilot need to load together before a shared reading can be computed.</p>`);
+        setHtml("comparisonList", `<div class="empty-state">Matched locations will appear here.</div>`);
+        return;
+    }
+
+    const topCity = [...state.cities].sort((left, right) => Number(right.probability || 0) - Number(left.probability || 0))[0];
+    const topProvince = state.regionalNodes[0];
+    const topShared = pairs[0];
+    const correlation = pearsonCorrelation(
+        pairs.map(item => Number(item.hybridScore || 0)),
+        pairs.map(item => Number(item.pilotScore || 0))
+    );
+    const overlapCount = pairs.filter(item => Number(item.hybridRank || 999) <= 5 && Number(item.provinceRank || 999) <= 10).length;
+    const pilotSource = stripDecorative(state.regionalPayload?.data_source || "unknown");
+
+    setText(
+        "comparisonStatus",
+        `Compared ${pairs.length} shared locations between the hybrid forecast and the 81-province pilot model.`
+    );
+
+    const stats = [
+        ["Shared points", String(pairs.length)],
+        ["Hybrid top city", stripDecorative(topCity?.city || "Unknown")],
+        ["Pilot top province", stripDecorative(topProvince?.name || "Unknown")],
+        ["Shared hotspot", stripDecorative(topShared?.province?.name || "Unknown")],
+        ["Top overlap", String(overlapCount)],
+        ["Agreement", correlation == null ? "N/A" : formatFixed(correlation, 2)]
+    ];
+
+    setHtml("comparisonStats", stats.map(([label, value]) => `
+        <div class="metric-block">
+            <span>${label}</span>
+            <strong>${value}</strong>
+        </div>
+    `).join(""));
+
+    const agreementText = correlation == null
+        ? "unavailable"
+        : correlation >= 0.6 ? "strong"
+        : correlation >= 0.3 ? "moderate"
+        : correlation >= 0 ? "light"
+        : "inverse";
+
+    const narrative = [
+        `The live hybrid map currently highlights ${stripDecorative(topCity?.city || "Unknown")} at ${formatPercent(topCity?.probability || 0)}, while the province pilot leads with ${stripDecorative(topProvince?.name || "Unknown")} at weekly count ${formatFixed(topProvince?.predicted_count || 0, 2)}.`,
+        `Across ${pairs.length} matched city-province points, agreement is ${agreementText}${correlation == null ? "" : ` with correlation ${formatFixed(correlation, 2)}`}.`,
+        `The strongest shared point in the matched set is ${stripDecorative(topShared?.province?.name || "Unknown")}; hybrid rank ${topShared?.hybridRank ?? "N/A"}, pilot rank ${topShared?.provinceRank ?? "N/A"}.`,
+        `Differences are still expected because the hybrid model is a short-horizon risk score that now uses the province pilot as a low-weight context signal, while the pilot map remains a weekly province-level event-count forecast sourced from ${pilotSource}.`
+    ];
+
+    setHtml("comparisonNarrative", narrative.map(text => `<p>${text}</p>`).join(""));
+
+    setHtml("comparisonList", pairs.map(item => `
+        <div class="comparison-row">
+            <div class="comparison-label">
+                <strong>${stripDecorative(item.city.city || item.province.name || "Unknown")}</strong>
+                <span>Hybrid rank ${item.hybridRank ?? "N/A"} · Pilot rank ${item.provinceRank ?? "N/A"}</span>
+            </div>
+            <div class="comparison-track">
+                <div class="comparison-track-head">
+                    <span>Hybrid probability</span>
+                    <span>${formatPercent(item.hybridScore)}</span>
+                </div>
+                <div class="comparison-bar"><div class="comparison-fill-main" style="width:${Math.max(2, Number(item.hybridScore || 0) * 100)}%"></div></div>
+            </div>
+            <div class="comparison-track">
+                <div class="comparison-track-head">
+                    <span>Pilot weekly count</span>
+                    <span>${formatFixed(item.pilotCount, 2)}</span>
+                </div>
+                <div class="comparison-bar"><div class="comparison-fill-pilot" style="width:${Math.max(2, Number(item.pilotScore || 0) * 100)}%"></div></div>
+            </div>
+            <div class="comparison-score">
+                <strong>${formatFixed(item.distanceKm, 1)} km</strong>
+                <span>match gap</span>
+            </div>
+        </div>
+    `).join(""));
 }
 
 function syncLayerVisibility() {
@@ -666,6 +843,7 @@ async function loadForecastCities() {
         setText("forecastMapStatus", "No city forecast data returned.");
     }
 
+    renderComparisonSection();
     return data;
 }
 
@@ -692,16 +870,17 @@ async function loadForecastGrid(forceReload = false) {
 }
 
 async function loadRegionalPilotMap() {
-    setText("regionalPilotStatus", "Loading regional pilot map.");
+    setText("regionalPilotStatus", "Loading province pilot map.");
     const data = await fetchJson("/api/v2/regional-pilot-map");
     state.regionalPayload = data;
     state.regionalNodes = Array.isArray(data.nodes) ? data.nodes : [];
 
     if (data.status !== "success") {
         if (state.regionalLayer) state.regionalLayer.clearLayers();
-        setText("regionalPilotStatus", stripDecorative(data.message || "Regional pilot model is not ready."));
-        renderRegionalEmptyState("Pilot model not ready", stripDecorative(data.message || "Regional pilot model is not ready."));
+        setText("regionalPilotStatus", stripDecorative(data.message || "Province pilot model is not ready."));
+        renderRegionalEmptyState("Pilot model not ready", stripDecorative(data.message || "Province pilot model is not ready."));
         renderRegionalModelMeta(data);
+        renderComparisonSection();
         return data;
     }
 
@@ -711,14 +890,15 @@ async function loadRegionalPilotMap() {
     if (state.regionalNodes.length) {
         updateRegionalNode(state.regionalNodes[0], data);
         setText(
-            "regionalPilotStatus",
-            `Loaded ${state.regionalNodes.length} regional nodes for week ${stripDecorative(data.predicted_week_start || "Unknown")}.`
-        );
+        "regionalPilotStatus",
+        `Loaded ${state.regionalNodes.length} provinces for week ${stripDecorative(data.predicted_week_start || "Unknown")}.`
+    );
     } else {
-        setText("regionalPilotStatus", "Regional pilot map returned no nodes.");
-        renderRegionalEmptyState("No regional nodes", "The pilot model response did not include any node predictions.");
+        setText("regionalPilotStatus", "Province pilot map returned no nodes.");
+        renderRegionalEmptyState("No province nodes", "The pilot model response did not include any province predictions.");
     }
 
+    renderComparisonSection();
     return data;
 }
 
@@ -947,7 +1127,7 @@ async function refreshDashboard({ reloadGrid = false } = {}) {
     try {
         await loadRegionalPilotMap();
     } catch (error) {
-        setText("regionalPilotStatus", `Regional pilot refresh failed: ${stripDecorative(error.message)}`);
+        setText("regionalPilotStatus", `Province pilot refresh failed: ${stripDecorative(error.message)}`);
         renderRegionalEmptyState("Pilot map refresh failed", stripDecorative(error.message));
     }
 
@@ -977,7 +1157,7 @@ function bindEvents() {
         try {
             await loadRegionalPilotMap();
         } catch (error) {
-            setText("regionalPilotStatus", `Regional pilot refresh failed: ${stripDecorative(error.message)}`);
+            setText("regionalPilotStatus", `Province pilot refresh failed: ${stripDecorative(error.message)}`);
             renderRegionalEmptyState("Pilot map refresh failed", stripDecorative(error.message));
         }
     });

@@ -11,8 +11,13 @@ from forecast.explain import explain_prediction
 from forecast.features import extract_features, haversine_km
 from forecast.gnn.predict import predict_gnn
 from forecast.lstm_runtime import predict_lstm_sequence
+from forecast.regional_graph_temporal import get_location_pilot_signal
 
 MODEL_TYPE = "forecast_hybrid_v3_timeseriescv"
+_MODEL_CACHE = {
+    "model": None,
+    "path_mtime": None,
+}
 
 FEATURE_ORDER = [
     "count",
@@ -39,12 +44,23 @@ FEATURE_ORDER = [
 
 def load_model():
     if not os.path.exists(FORECAST_MODEL):
+        _MODEL_CACHE["model"] = None
+        _MODEL_CACHE["path_mtime"] = None
         return None
+
+    current_mtime = os.path.getmtime(FORECAST_MODEL)
+    if _MODEL_CACHE["model"] is not None and _MODEL_CACHE["path_mtime"] == current_mtime:
+        return _MODEL_CACHE["model"]
+
     try:
         with open(FORECAST_MODEL, "rb") as f:
-            return pickle.load(f)
+            model = pickle.load(f)
     except Exception:
         return None
+
+    _MODEL_CACHE["model"] = model
+    _MODEL_CACHE["path_mtime"] = current_mtime
+    return model
 
 
 def _sorted_events(events: list) -> list:
@@ -139,6 +155,7 @@ def _build_signal_bundle(events: list, lat: float, lon: float) -> dict:
     b_risk = _clamp01(1.2 - b_value)
     lstm_prob = _clamp01(predict_lstm_sequence(lstm_events, lat, lon) if signal_events else 0.0)
     gnn_prob = _clamp01(predict_gnn(gnn_events))
+    pilot_signal = get_location_pilot_signal(events, lat, lon)
 
     return {
         "cluster_score": float(cluster_score),
@@ -147,10 +164,18 @@ def _build_signal_bundle(events: list, lat: float, lon: float) -> dict:
         "lstm_probability": float(lstm_prob),
         "gnn_probability": float(gnn_prob),
         "signal_event_count": int(len(signal_events)),
+        "pilot_available": bool(pilot_signal.get("pilot_available")),
+        "pilot_probability": float(pilot_signal.get("pilot_probability", 0.0) or 0.0),
+        "pilot_region_name": pilot_signal.get("pilot_region_name"),
+        "pilot_region_distance_km": _optional_float(pilot_signal.get("pilot_region_distance_km"), min_value=0.0),
+        "pilot_weekly_count_prediction": float(pilot_signal.get("pilot_weekly_count_prediction", 0.0) or 0.0),
+        "pilot_last_week_count": float(pilot_signal.get("pilot_last_week_count", 0.0) or 0.0),
+        "pilot_rolling_mean": float(pilot_signal.get("pilot_rolling_mean", 0.0) or 0.0),
+        "pilot_data_source": pilot_signal.get("pilot_data_source"),
     }
 
 
-def _dynamic_weights(features: dict) -> dict:
+def _dynamic_weights(features: dict, pilot_available: bool = False) -> dict:
     weights = {
         "ml": 0.40,
         "etas": 0.20,
@@ -158,6 +183,7 @@ def _dynamic_weights(features: dict) -> dict:
         "b": 0.10,
         "lstm": 0.10,
         "gnn": 0.15,
+        "pilot": 0.08 if pilot_available else 0.0,
     }
 
     count = int(features.get("count", 0) or 0)
@@ -170,6 +196,7 @@ def _dynamic_weights(features: dict) -> dict:
         weights["b"] = 0.10
         weights["lstm"] = 0.05
         weights["gnn"] = 0.15
+        weights["pilot"] = 0.15 if pilot_available else 0.0
     elif max_mag > 4.0:
         weights["ml"] = 0.50
         weights["etas"] = 0.20
@@ -177,6 +204,7 @@ def _dynamic_weights(features: dict) -> dict:
         weights["b"] = 0.08
         weights["lstm"] = 0.05
         weights["gnn"] = 0.07
+        weights["pilot"] = 0.06 if pilot_available else 0.0
 
     total = sum(weights.values())
     if total <= 0:
@@ -274,12 +302,18 @@ def predict_with_model_data(
     signals = _build_signal_bundle(events, lat, lon)
     etas_prob = float(etas_like_score(feats))
     locality_score = _locality_score(feats, signals)
+    weights = _dynamic_weights(feats, pilot_available=bool(signals.get("pilot_available")))
 
     if not model_data or "model" not in model_data:
+        pilot_component = float(signals["pilot_probability"]) if signals.get("pilot_available") else locality_score
         fallback_prob = _clamp01(
-            0.50 * etas_prob
-            + 0.25 * signals["cluster_score"]
-            + 0.25 * locality_score
+            0.36 * etas_prob
+            + 0.16 * signals["cluster_score"]
+            + 0.10 * signals["b_risk"]
+            + 0.08 * signals["lstm_probability"]
+            + 0.08 * signals["gnn_probability"]
+            + 0.10 * pilot_component
+            + 0.12 * locality_score
         )
         return {
             "probability": fallback_prob,
@@ -296,8 +330,15 @@ def predict_with_model_data(
             "next_event_distance_km_prediction": None,
             "next_event_magnitude_prediction": None,
             "next_event_time_window": None,
+            "pilot_probability": float(signals["pilot_probability"]),
+            "pilot_available": bool(signals["pilot_available"]),
+            "pilot_province": signals.get("pilot_region_name"),
+            "pilot_region_distance_km": signals.get("pilot_region_distance_km"),
+            "pilot_weekly_count_prediction": float(signals["pilot_weekly_count_prediction"]),
+            "pilot_signal_weight": float(weights.get("pilot", 0.0)),
+            "pilot_data_source": signals.get("pilot_data_source"),
             "locality_score": float(locality_score),
-            "ensemble_weights": _dynamic_weights(feats),
+            "ensemble_weights": weights,
             "signal_event_count": int(signals["signal_event_count"]),
             "features": feats,
             "top_features": [],
@@ -315,7 +356,6 @@ def predict_with_model_data(
 
     ml_prob = float(model_data["model"].predict_proba(X)[0, 1])
     aux_predictions = _predict_auxiliary_targets(model_data, X)
-    weights = _dynamic_weights(feats)
 
     final_prob = (
         weights["ml"] * ml_prob
@@ -324,6 +364,7 @@ def predict_with_model_data(
         + weights["b"] * signals["b_risk"]
         + weights["lstm"] * signals["lstm_probability"]
         + weights["gnn"] * signals["gnn_probability"]
+        + weights.get("pilot", 0.0) * signals["pilot_probability"]
     )
     final_prob = _clamp01(0.88 * final_prob + 0.12 * locality_score)
 
@@ -342,6 +383,13 @@ def predict_with_model_data(
         "next_event_distance_km_prediction": aux_predictions["next_event_distance_km_prediction"],
         "next_event_magnitude_prediction": aux_predictions["next_event_magnitude_prediction"],
         "next_event_time_window": _lead_time_window(aux_predictions["time_to_next_event_hours_prediction"]),
+        "pilot_probability": float(signals["pilot_probability"]),
+        "pilot_available": bool(signals["pilot_available"]),
+        "pilot_province": signals.get("pilot_region_name"),
+        "pilot_region_distance_km": signals.get("pilot_region_distance_km"),
+        "pilot_weekly_count_prediction": float(signals["pilot_weekly_count_prediction"]),
+        "pilot_signal_weight": float(weights.get("pilot", 0.0)),
+        "pilot_data_source": signals.get("pilot_data_source"),
         "locality_score": float(locality_score),
         "ensemble_weights": weights,
         "signal_event_count": int(signals["signal_event_count"]),

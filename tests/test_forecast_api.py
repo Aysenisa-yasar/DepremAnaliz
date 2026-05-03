@@ -21,3 +21,8 @@ def test_forecast_map_v2_json(client):
     assert data is not None
     assert "status" in data
     assert "points" in data
+    if data["points"]:
+        point = data["points"][0]
+        assert "pilot_probability" in point
+        assert "pilot_province" in point
+        assert "pilot_signal_weight" in point

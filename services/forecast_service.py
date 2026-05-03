@@ -1,6 +1,12 @@
 from forecast.predictor import predict
 
 
+def _optional_float(value):
+    if value is None:
+        return None
+    return float(value)
+
+
 def forecast_city(events: list, city: dict, explain: bool = False) -> dict:
     lat = city["lat"]
     lon = city["lon"]
@@ -18,6 +24,17 @@ def forecast_city(events: list, city: dict, explain: bool = False) -> dict:
         "gnn_probability": float(pred.get("gnn_probability", 0.0)),
         "m5_72h_probability": float(pred.get("m5_72h_probability", 0.0)),
         "max_mag_7d_prediction": float(pred.get("max_mag_7d_prediction", 0.0)),
+        "time_to_next_event_hours_prediction": _optional_float(pred.get("time_to_next_event_hours_prediction")),
+        "next_event_distance_km_prediction": _optional_float(pred.get("next_event_distance_km_prediction")),
+        "next_event_magnitude_prediction": _optional_float(pred.get("next_event_magnitude_prediction")),
+        "next_event_time_window": pred.get("next_event_time_window"),
+        "pilot_probability": float(pred.get("pilot_probability", 0.0)),
+        "pilot_available": bool(pred.get("pilot_available", False)),
+        "pilot_province": pred.get("pilot_province"),
+        "pilot_region_distance_km": _optional_float(pred.get("pilot_region_distance_km")),
+        "pilot_weekly_count_prediction": float(pred.get("pilot_weekly_count_prediction", 0.0)),
+        "pilot_signal_weight": float(pred.get("pilot_signal_weight", 0.0)),
+        "pilot_data_source": pred.get("pilot_data_source"),
         "locality_score": float(pred.get("locality_score", 0.0)),
         "risk_score": round(risk, 2),
         "top_features": pred.get("top_features", []),
